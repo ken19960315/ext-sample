@@ -8,8 +8,12 @@ A sampling circuit generator package embedded in [abc](https://github.com/berkel
 # Documentation
 - command.cpp
   Implement two commands for abc
-  1. sampleGen \[-i <num>] \[-o <num>]
+  
+  1. sampleGen \[-i \<num>] \[-o \<num>]
+  
     Generate a sample circuit with specific PI and PO number in AIG format.
-  2. sampleCnt \[-i <num>]
+  2. sampleCnt \[-i \<num>]
+  
     Generate a sample circuit with specific PI number, and connect it to the current network. Notice that the current network should be strash.
+
 - SampleCircuit.h/cpp
