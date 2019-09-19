@@ -6,14 +6,11 @@ A sampling circuit generator package embedded in [abc](https://github.com/berkel
 2. type "make" command at the root directory of abc
 
 # Documentation
-- command.cpp
+1. command.cpp
   Implement two commands for abc
-  
-  1. sampleGen \[-i \<num>] \[-o \<num>]
-  
+  - sampleGen \[-i \<num>] \[-o \<num>]
     Generate a sample circuit with specific PI and PO number in AIG format.
-  2. sampleCnt \[-i \<num>]
-  
+  - sampleCnt \[-i \<num>]
     Generate a sample circuit with specific PI number, and connect it to the current network. Notice that the current network should be strash.
 
-- SampleCircuit.h/cpp
+2. SampleCircuit.h/cpp
