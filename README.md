@@ -13,7 +13,7 @@ A sampling circuit generator package embedded in [abc](https://github.com/berkel
   2. **sampleCnt \[-i \<num>]**  
     Generate a sample circuit with specific PI number, and connect it to the current network. Notice that the current network should be strash.
 
-- SampleCircuit.h/cpp
+- SampleCircuit.h/cpp  
   C++ interface  
   1. **Constructor**  
     can initialize the number of PI/PO here
@@ -21,7 +21,7 @@ A sampling circuit generator package embedded in [abc](https://github.com/berkel
     set the number of PI/PO
   3. **void setRndSeed(int seed)**  
     set random seed
-  4. **Abc_Ntk_t* genCircuit()**  
+  4. **Abc_Ntk_t\* genCircuit()**  
     generate sampling circuit with given PI/PO number and return the network(also stored in "SampleCircuit::pAig" variable).
-  5. **Abc_Ntk_t* connect(Abc_Ntk_t* pNtk)**  
+  5. **Abc_Ntk_t\* connect(Abc_Ntk_t\* pNtk)**  
     connect to current network and return the new network
