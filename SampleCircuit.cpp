@@ -12,6 +12,7 @@
 using namespace std;
 
 #define SWAP(a, b)  do {a ^= b; b ^= a; a ^= b; } while(0)
+#define ObjId(pObj) Abc_ObjId(Abc_ObjRegular(pObj))
 
 SampleCircuit::SampleCircuit(int nPI, int nPO)
 {
@@ -507,7 +508,7 @@ Abc_Ntk_t* SampleCircuit::connect(Abc_Ntk_t* pNtk, char* pName)
 
     int i;
     Abc_Ntk_t * pAigNew; 
-    Abc_Obj_t * pObj; 
+    Abc_Obj_t * pObj, * pPo;
     Abc_Obj_t * pChild0; 
     Abc_Obj_t * pChild1; 
     unordered_map<int, int> IDmap;
@@ -528,18 +529,24 @@ Abc_Ntk_t* SampleCircuit::connect(Abc_Ntk_t* pNtk, char* pName)
         Abc_NtkDupBox( pAigNew, pObj, 1 );
     //
     Abc_NtkForEachPi( pNtk, pObj, i )
-        IDmap[pObj->Id] = i;
+        IDmap[ObjId(pObj)] = i;
     // copy the AND gates
     Abc_AigForEachAnd( pAig, pObj, i )
         pObj->pCopy = Abc_AigAnd( (Abc_Aig_t *)pAigNew->pManFunc, Abc_ObjChild0Copy(pObj), Abc_ObjChild1Copy(pObj) );
     Abc_AigForEachAnd( pNtk, pObj, i )
     {
         if (Abc_ObjIsPi(Abc_ObjFanin0(pObj)))
-            pChild0 = Abc_ObjNotCond( Abc_ObjFanin0(Abc_NtkPo(pAig,IDmap[Abc_ObjFanin0(pObj)->Id]))->pCopy, Abc_ObjFaninC0(pObj) );
+        {
+            pPo = Abc_NtkPo(pAig,IDmap[ObjId(Abc_ObjFanin0(pObj))]);
+            pChild0 = Abc_ObjNotCond( Abc_ObjFanin0( Abc_ObjNotCond(pPo, Abc_ObjFaninC0(pPo)) )->pCopy, Abc_ObjFaninC0(pObj) );
+        }
         else
             pChild0 = Abc_ObjChild0Copy(pObj);
         if (Abc_ObjIsPi(Abc_ObjFanin1(pObj)))
-            pChild1 = Abc_ObjNotCond( Abc_ObjFanin0(Abc_NtkPo(pAig,IDmap[Abc_ObjFanin1(pObj)->Id]))->pCopy, Abc_ObjFaninC1(pObj) );
+        {
+            pPo = Abc_NtkPo(pAig,IDmap[ObjId(Abc_ObjFanin1(pObj))]);
+            pChild1 = Abc_ObjNotCond( Abc_ObjFanin0( Abc_ObjNotCond(pPo, Abc_ObjFaninC0(pPo)) )->pCopy, Abc_ObjFaninC1(pObj) );
+        }
         else
             pChild1 = Abc_ObjChild1Copy(pObj);
         pObj->pCopy = Abc_AigAnd( (Abc_Aig_t *)pAigNew->pManFunc, pChild0, pChild1 );
@@ -548,7 +555,10 @@ Abc_Ntk_t* SampleCircuit::connect(Abc_Ntk_t* pNtk, char* pName)
     Abc_NtkForEachCo( pNtk, pObj, i )
     {
         if (Abc_ObjIsPi(Abc_ObjFanin0(pObj)))
-            pChild0 = Abc_ObjNotCond( Abc_ObjFanin0(Abc_NtkPo(pAig,IDmap[Abc_ObjFanin0(pObj)->Id]))->pCopy, Abc_ObjFaninC0(pObj) );
+        {
+            pPo = Abc_NtkPo(pAig,IDmap[ObjId(Abc_ObjFanin0(pObj))]);
+            pChild0 = Abc_ObjNotCond( Abc_ObjFanin0( Abc_ObjNotCond(pPo, Abc_ObjFaninC0(pPo)) )->pCopy, Abc_ObjFaninC0(pObj) );
+        }
         //else if (Abc_AigNodeIsConst(Abc_ObjFanin0(pObj)))
         //    pChild0 = Abc_ObjNotCond( Abc_AigConst1(pAigNew), Abc_ObjFaninC0(pObj) );
         else
