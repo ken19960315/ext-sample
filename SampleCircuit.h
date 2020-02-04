@@ -9,23 +9,23 @@ using namespace std;
 class SampleCircuit{
 
 public:
-    SampleCircuit() {f_init=false; f_gen=false; srand((unsigned)time(NULL));}
+    SampleCircuit();
     SampleCircuit(int nPI, int nPO);
 
     void setIOnum(int nPI, int nPO);
     void setRndSeed(unsigned seed) {srand(seed);}
-    Abc_Ntk_t* genCircuit();
-    Abc_Ntk_t* genCircuit(Abc_Ntk_t* pNtk);
-    Abc_Ntk_t* genCircuit2(Abc_Ntk_t* pNtk);
-    Abc_Ntk_t* connect(Abc_Ntk_t* pNtk, char* pName="connected");
+    Abc_Ntk_t* genCircuit(bool fVerbose=false);
+    Abc_Ntk_t* genCircuit(Abc_Ntk_t* pNtk, bool fVerbose=false);
+    Abc_Ntk_t* genCircuit2(Abc_Ntk_t* pNtk); //deprecated
+    Abc_Ntk_t* connect(Abc_Ntk_t* pNtk, char* pName="sampled");
 
     friend ostream& operator<<(ostream& out, const SampleCircuit& obj);
     vector< vector<int> > getXOR() {return XOR;}
     Abc_Ntk_t* getCircuit() {return pAig;}
 
 private:
-    bool f_init;
-    bool f_gen;
+    bool fInit;
+    bool fGen;
     int nPI;
     int nPO;
     unsigned seed;

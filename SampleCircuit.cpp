@@ -14,14 +14,22 @@ using namespace std;
 #define SWAP(a, b)  do {a ^= b; b ^= a; a ^= b; } while(0)
 #define ObjId(pObj) Abc_ObjId(Abc_ObjRegular(pObj))
 
+SampleCircuit::SampleCircuit()
+{
+    fInit = false;
+    fGen = false;
+    seed = chrono::system_clock::now().time_since_epoch().count();
+    srand(seed);
+}
+
 SampleCircuit::SampleCircuit(int nPI, int nPO)
 {
     assert(nPI>0 && nPO>0 && nPI<nPO);
     this->nPI = nPI;
     this->nPO = nPO;
 
-    f_init = true;
-    f_gen = false;
+    fInit = true;
+    fGen = false;
     seed = chrono::system_clock::now().time_since_epoch().count();
     srand(seed);
 }
@@ -32,14 +40,14 @@ void SampleCircuit::setIOnum(int nPI, int nPO)
     this->nPI = nPI;
     this->nPO = nPO;
     
-    f_init = true;
+    fInit = true;
 }
 
-Abc_Ntk_t* SampleCircuit::genCircuit()
+Abc_Ntk_t* SampleCircuit::genCircuit(bool fVerbose)
 {
     vector<int> pivot;
     vector< vector<bool> > Mat;
-    char* pName = "sample";
+    char* pCircuitName = "sample";
     Abc_Obj_t * pObj;
     
     // allocate memory
@@ -48,33 +56,48 @@ Abc_Ntk_t* SampleCircuit::genCircuit()
 
     // initialize
     pAig = Abc_NtkAlloc( ABC_NTK_STRASH, ABC_FUNC_AIG, 1 ); 
-    pAig->pName = Extra_UtilStrsav( pName );
+    pAig->pName = Extra_UtilStrsav( pCircuitName );
     
     // create PI/PO 
     for ( int i = 0; i < nPI; i++ )
+    {
+        char pObjName[10];
         pObj = Abc_NtkCreatePi( pAig );
+        sprintf(pObjName, "SC_i%d", i+1);
+        Abc_ObjAssignName( pObj, pObjName, NULL );
+    }
     for ( int i = 0; i < nPO; i++ )
+    {
+        char pObjName[10];
         pObj = Abc_NtkCreatePo( pAig );
+        sprintf(pObjName, "SC_o%d", i+1);
+        Abc_ObjAssignName( pObj, pObjName, NULL );
+    }
 
     // const node
     Abc_Obj_t * pAigOne  = Abc_AigConst1(pAig);
     Abc_Obj_t * pAigZero = Abc_ObjNot(pAigOne);
 
     // generate XOR constraints
-    assert(f_init);
+    assert(fInit);
     do{
         rndXORGen(nPI, nPO, Mat, pivot);
-    } while(!checkAvailable(nPI, nPO, Mat));    
-    /*cout << "Matrix =\n";
-    for (int i = 0; i < nPO-nPI; i++)
+    } while(!checkAvailable(nPI, nPO, Mat));   
+
+    // print the sampling matrix
+    if (fVerbose)
     {
-        cout << "|";
-        for (int j = 0; j < nPO; j++)
-            cout << " " << Mat[i][j];
-        cout << " | " << Mat[i][nPO];
-        cout << " |\n";
-    }*/
-    
+        cout << "Matrix =\n";
+        for (int i = 0; i < nPO-nPI; i++)
+        {
+            cout << "|";
+            for (int j = 0; j < nPO; j++)
+                cout << " " << Mat[i][j];
+            cout << " | " << Mat[i][nPO];
+            cout << " |\n";
+        }
+    }
+
     // create mapping 
     vector<int>::iterator iter = pivot.begin();
     queue<int> restPO;
@@ -134,9 +157,6 @@ Abc_Ntk_t* SampleCircuit::genCircuit()
     
     //
     Abc_AigCleanup( (Abc_Aig_t*)pAig->pManFunc );
-    Abc_NtkAddDummyPiNames( pAig );
-    Abc_NtkAddDummyPoNames( pAig );
-    Abc_NtkAddDummyBoxNames( pAig );
 
     // return constructed AIG
     if ( !Abc_NtkCheck( pAig ) )
@@ -145,12 +165,12 @@ Abc_Ntk_t* SampleCircuit::genCircuit()
         Abc_NtkDelete( pAig );
         return NULL;
     }
-    f_gen = true;
+    fGen = true;
     return Abc_NtkDup( pAig );
 }
 
 bool cmp(vector<int> i, vector<int> j) { return (i.size()>j.size()); }
-Abc_Ntk_t* SampleCircuit::genCircuit(Abc_Ntk_t* pNtk)
+Abc_Ntk_t* SampleCircuit::genCircuit(Abc_Ntk_t* pNtk, bool fVerbose)
 {
     int i, j;
     vector<int> pivot;
@@ -193,17 +213,27 @@ Abc_Ntk_t* SampleCircuit::genCircuit(Abc_Ntk_t* pNtk)
     pAig->pName = Extra_UtilStrsav( pName );
     
     // create PI/PO 
-    for ( i = 0; i < nPI; i++ )
+    for ( int i = 0; i < nPI; i++ )
+    {
+        char pObjName[10];
         pObj = Abc_NtkCreatePi( pAig );
-    for ( i = 0; i < nPO; i++ )
+        sprintf(pObjName, "SC_i%d", i+1);
+        Abc_ObjAssignName( pObj, pObjName, NULL );
+    }
+    for ( int i = 0; i < nPO; i++ )
+    {
+        char pObjName[10];
         pObj = Abc_NtkCreatePo( pAig );
+        sprintf(pObjName, "SC_o%d", i+1);
+        Abc_ObjAssignName( pObj, pObjName, NULL );
+    }
 
     // const node
     Abc_Obj_t * pAigOne  = Abc_AigConst1(pAig);
     Abc_Obj_t * pAigZero = Abc_ObjNot(pAigOne);
 
     // generate sampling circuit
-    assert(f_init);
+    assert(fInit);
     vector<bool> vCheck(nPO, false); 
     XOR.resize(nPO);
     while (!sup_vec.empty())
@@ -241,15 +271,20 @@ Abc_Ntk_t* SampleCircuit::genCircuit(Abc_Ntk_t* pNtk)
             do{
                 rndXORGen(nPI, nPOc, Mat, pivot);
             } while(!checkAvailable(nPI, nPOc, Mat));    
-            /*cout << "Matrix =\n";
-            for (i = 0; i < nPO-nPI; i++)
+           
+            // print the sampling matrix
+            if (fVerbose)
             {
-                cout << "|";
-                for (j = 0; j < nPO; j++)
-                    cout << " " << Mat[i][j];
-                cout << " | " << Mat[i][nPO];
-                cout << " |\n";
-            }*/
+                cout << "Matrix =\n";
+                for (i = 0; i < nPO-nPI; i++)
+                {
+                    cout << "|";
+                    for (j = 0; j < nPO; j++)
+                        cout << " " << Mat[i][j];
+                    cout << " | " << Mat[i][nPO];
+                    cout << " |\n";
+                }
+            }
             
             // create mapping 
             vector<int>::iterator iter = pivot.begin();
@@ -333,9 +368,6 @@ Abc_Ntk_t* SampleCircuit::genCircuit(Abc_Ntk_t* pNtk)
 
     //
     Abc_AigCleanup( (Abc_Aig_t*)pAig->pManFunc );
-    Abc_NtkAddDummyPiNames( pAig );
-    Abc_NtkAddDummyPoNames( pAig );
-    Abc_NtkAddDummyBoxNames( pAig );
 
     // return constructed AIG
     if ( !Abc_NtkCheck( pAig ) )
@@ -344,7 +376,7 @@ Abc_Ntk_t* SampleCircuit::genCircuit(Abc_Ntk_t* pNtk)
         Abc_NtkDelete( pAig );
         return NULL;
     }
-    f_gen = true;
+    fGen = true;
     return Abc_NtkDup( pAig );
 }
 
@@ -393,17 +425,27 @@ Abc_Ntk_t* SampleCircuit::genCircuit2(Abc_Ntk_t* pNtk)
     pAig->pName = Extra_UtilStrsav( pName );
     
     // create PI/PO 
-    for ( i = 0; i < nPI; i++ )
+    for ( int i = 0; i < nPI; i++ )
+    {
+        char pObjName[10];
         pObj = Abc_NtkCreatePi( pAig );
-    for ( i = 0; i < nPO; i++ )
+        sprintf(pObjName, "SC_i%d", i+1);
+        Abc_ObjAssignName( pObj, pObjName, NULL );
+    }
+    for ( int i = 0; i < nPO; i++ )
+    {
+        char pObjName[10];
         pObj = Abc_NtkCreatePo( pAig );
+        sprintf(pObjName, "SC_o%d", i+1);
+        Abc_ObjAssignName( pObj, pObjName, NULL );
+    }
 
     // const node
     Abc_Obj_t * pAigOne  = Abc_AigConst1(pAig);
     Abc_Obj_t * pAigZero = Abc_ObjNot(pAigOne);
 
     // generate sampling matrix
-    assert(f_init);
+    assert(fInit);
     Mat.resize(nPO-nPI);
     do{
         rndXORGen(nPI, nPO, Mat, pivot);
@@ -486,9 +528,6 @@ Abc_Ntk_t* SampleCircuit::genCircuit2(Abc_Ntk_t* pNtk)
 
     //
     Abc_AigCleanup( (Abc_Aig_t*)pAig->pManFunc );
-    Abc_NtkAddDummyPiNames( pAig );
-    Abc_NtkAddDummyPoNames( pAig );
-    Abc_NtkAddDummyBoxNames( pAig );
 
     // return constructed AIG
     if ( !Abc_NtkCheck( pAig ) )
@@ -497,14 +536,14 @@ Abc_Ntk_t* SampleCircuit::genCircuit2(Abc_Ntk_t* pNtk)
         Abc_NtkDelete( pAig );
         return NULL;
     }
-    f_gen = true;
+    fGen = true;
     return Abc_NtkDup( pAig );
 }
 
 Abc_Ntk_t* SampleCircuit::connect(Abc_Ntk_t* pNtk, char* pName)
 {
     assert(pNtk && Abc_NtkHasAig(pNtk) && Abc_NtkIsStrash(pNtk));
-    assert(f_gen);
+    assert(fGen);
 
     int i;
     Abc_Ntk_t * pAigNew; 
@@ -520,16 +559,17 @@ Abc_Ntk_t* SampleCircuit::connect(Abc_Ntk_t* pNtk, char* pName)
     // map constant nodes
     Abc_AigConst1(pAig)->pCopy = Abc_AigConst1(pAigNew);
     Abc_AigConst1(pNtk)->pCopy = Abc_AigConst1(pAigNew);
-    // clone CIs/COs/boxes
+    
+    // clone PIs & POs
     Abc_NtkForEachPi( pAig, pObj, i )
         Abc_NtkDupObj( pAigNew, pObj, 1 );
     Abc_NtkForEachPo( pNtk, pObj, i )
         Abc_NtkDupObj( pAigNew, pObj, 1 );
-    Abc_NtkForEachBox( pNtk, pObj, i )
-        Abc_NtkDupBox( pAigNew, pObj, 1 );
-    //
+    
+    // map IDs to numbers
     Abc_NtkForEachPi( pNtk, pObj, i )
         IDmap[ObjId(pObj)] = i;
+    
     // copy the AND gates
     Abc_AigForEachAnd( pAig, pObj, i )
         pObj->pCopy = Abc_AigAnd( (Abc_Aig_t *)pAigNew->pManFunc, Abc_ObjChild0Copy(pObj), Abc_ObjChild1Copy(pObj) );
@@ -538,14 +578,14 @@ Abc_Ntk_t* SampleCircuit::connect(Abc_Ntk_t* pNtk, char* pName)
         if (Abc_ObjIsPi(Abc_ObjFanin0(pObj)))
         {
             pPo = Abc_NtkPo(pAig,IDmap[ObjId(Abc_ObjFanin0(pObj))]);
-            pChild0 = Abc_ObjNotCond( Abc_ObjFanin0( Abc_ObjNotCond(pPo, Abc_ObjFaninC0(pPo)) )->pCopy, Abc_ObjFaninC0(pObj) );
+            pChild0 = Abc_ObjNotCond( Abc_ObjFanin0(pPo)->pCopy, Abc_ObjFaninC0(pPo)^Abc_ObjFaninC0(pObj) );
         }
         else
             pChild0 = Abc_ObjChild0Copy(pObj);
         if (Abc_ObjIsPi(Abc_ObjFanin1(pObj)))
         {
             pPo = Abc_NtkPo(pAig,IDmap[ObjId(Abc_ObjFanin1(pObj))]);
-            pChild1 = Abc_ObjNotCond( Abc_ObjFanin0( Abc_ObjNotCond(pPo, Abc_ObjFaninC0(pPo)) )->pCopy, Abc_ObjFaninC1(pObj) );
+            pChild1 = Abc_ObjNotCond( Abc_ObjFanin0(pPo)->pCopy, Abc_ObjFaninC0(pPo)^Abc_ObjFaninC1(pObj) );
         }
         else
             pChild1 = Abc_ObjChild1Copy(pObj);
@@ -557,7 +597,7 @@ Abc_Ntk_t* SampleCircuit::connect(Abc_Ntk_t* pNtk, char* pName)
         if (Abc_ObjIsPi(Abc_ObjFanin0(pObj)))
         {
             pPo = Abc_NtkPo(pAig,IDmap[ObjId(Abc_ObjFanin0(pObj))]);
-            pChild0 = Abc_ObjNotCond( Abc_ObjFanin0( Abc_ObjNotCond(pPo, Abc_ObjFaninC0(pPo)) )->pCopy, Abc_ObjFaninC0(pObj) );
+            pChild0 = Abc_ObjNotCond( Abc_ObjFanin0(pPo)->pCopy, Abc_ObjFaninC0(pPo)^Abc_ObjFaninC0(pObj) );
         }
         //else if (Abc_AigNodeIsConst(Abc_ObjFanin0(pObj)))
         //    pChild0 = Abc_ObjNotCond( Abc_AigConst1(pAigNew), Abc_ObjFaninC0(pObj) );
