@@ -8,6 +8,7 @@
 #include <ctime>
 #include <unordered_map>
 #include <bitset>
+#include <algorithm>
 
 #include "ext-sample/SampleCircuit.h"
 #include "ext-sample/chisqr.h"
@@ -107,7 +108,7 @@ usage:
 }
 
 // ABC command: Generate a sampling circuit 
-int SampleGen_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
+int SampleCkt_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
 {
     char c;
     int nPI = 0;
@@ -188,13 +189,119 @@ int SampleGen_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
     return 0;
 
 usage:
-    Abc_Print( -2, "usage: sampleGen [-i <num>] [-o <num> / -c] [-vh]\n" );
+    Abc_Print( -2, "usage: sampleCkt [-i <num>] [-o <num> / -c] [-vh]\n" );
     Abc_Print( -2, "\t        Generate a sample circuit with given PI and PO number\n" );
-    Abc_Print( -2, "\t-i <num> : set the number of PI\n");
-    Abc_Print( -2, "\t-o <num> : set the number of PO\n");
-    Abc_Print( -2, "\t-c       : consider supports correlation\n");
-    Abc_Print( -2, "\t-v       : verbose\n");
-    Abc_Print( -2, "\t-h       : print the command usage\n");
+    Abc_Print( -2, "\t-i <num>  : set the number of PI\n");
+    Abc_Print( -2, "\t-o <num>  : set the number of PO\n");
+    Abc_Print( -2, "\t-c        : consider supports correlation\n");
+    Abc_Print( -2, "\t-v        : verbose\n");
+    Abc_Print( -2, "\t-h        : print the command usage\n");
+    return 0;
+}
+
+// ABC command: Generate a sampling circuit 
+int SampleGen_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
+{
+    char c;
+    int nPI, nPO;
+    int nSample = 0;
+    bool fRedirect = false;
+    bool fVerbose = false;
+    int * pPattern;
+    char* filename;
+    fstream file;
+    vector<int> vNum;
+    Abc_Ntk_t * pNtk;
+
+    // parse arguments
+    Extra_UtilGetoptReset();
+    while ( ( c = Extra_UtilGetopt( argc, argv, "srvh" ) ) != EOF )
+    {
+        switch ( c )
+        {
+        case 's':
+            if ( globalUtilOptind >= argc )
+            {
+                Abc_Print( -1, "Command line switch \"-i\" should be followed by an integer.\n" );
+                goto usage;
+            }
+            nSample = atoi(argv[globalUtilOptind]);
+            globalUtilOptind++;
+            if ( nSample <= 0 )
+                goto usage;
+            break;
+        case 'r':
+            if ( globalUtilOptind >= argc )
+            {
+                Abc_Print( -1, "Command line switch \"-r\" should be followed by an string.\n" );
+                goto usage;
+            }
+            fRedirect = true;
+            filename = argv[globalUtilOptind];
+            globalUtilOptind++;
+            break;
+        case 'v':
+            fVerbose = true;
+            break;
+        case 'h':
+            goto usage;
+        default:
+            goto usage;
+        }
+    }
+
+    // read the current network
+    pNtk = Abc_FrameReadNtk(pAbc);
+    assert(pNtk != NULL && Abc_NtkIsComb(pNtk));
+    nPI = Abc_NtkPiNum(pNtk);
+    nPO = Abc_NtkPoNum(pNtk);
+    assert(nSample <= pow(2,nPI));
+
+    // generate samples
+    file.open(filename, ios::out|ios::trunc);
+    assert(file.is_open());
+    for (int i = 0; i < int(pow(2,nPI)); i++)
+        vNum.push_back(i);
+    random_shuffle(vNum.begin(), vNum.end());
+    for (int i = 0; i < nSample; i++)
+    {
+        bitset<20> bs(vNum[i]);
+        pPattern = new int[nPI];
+        for (int j = 0; j < nPI; j++)
+            pPattern[j] = bs[j];
+        int * pValues = Abc_NtkVerifySimulatePattern( pNtk, pPattern );
+        if (fRedirect)
+        {
+            for (int j = 0; j < nPO; j++)
+            {
+                if (pValues[j] == 0)
+                    file << "-";
+                file << j+1 << " ";
+            }
+            file << "\n";
+        }
+        else
+        {
+            for (int j = 0; j < nPO; j++)
+            {
+                if (pValues[j] == 0)
+                    cout << "-";
+                cout << j+1 << " ";
+            }
+            cout << "\n";
+        }
+    }
+    
+    file.close();
+    return 0;
+
+usage:
+    Abc_Print( -2, "usage: sampleGen [-s <num>] [-r <file>] [-vh]\n" );
+    Abc_Print( -2, "\t        Using created sampling circuit to generate samples\n" );
+    Abc_Print( -2, "\t-s <num>  : set the number of samples\n");
+    Abc_Print( -2, "\t-r <file> : redirect the result to the given file\n");
+    Abc_Print( -2, "\t-v        : verbose\n");
+    Abc_Print( -2, "\t-h        : print the command usage\n");
     return 0;
 }
 
@@ -286,6 +393,68 @@ usage:
     Abc_Print( -2, "\t        Generate a sample circuit with given PI number and connect it to current AIG network\n" );
     Abc_Print( -2, "\t-i <num> : set the number of PI\n");
     Abc_Print( -2, "\t-c       : consider supports correlation\n");
+    Abc_Print( -2, "\t-v       : verbose\n");
+    Abc_Print( -2, "\t-h       : print the command usage\n");
+    return 0;
+}
+
+// ABC command: Draw samples from the witness of the given formula
+int SampleWit_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
+{
+    char c;
+    int nPI, nSample = 0;
+    bool fVerbose = false;
+    Abc_Ntk_t * pNtk;
+    Abc_Obj_t * pObj;
+	vector<vector<bool>> vMinterm;
+
+    // parse arguments
+    Extra_UtilGetoptReset();
+    while ( ( c = Extra_UtilGetopt( argc, argv, "svh" ) ) != EOF )
+    {
+        switch ( c )
+        {
+        case 's':
+            if ( globalUtilOptind >= argc )
+            {
+                Abc_Print( -1, "Command line switch \"-s\" should be followed by an integer.\n" );
+                goto usage;
+            }
+            nSample = atoi(argv[globalUtilOptind]);
+            globalUtilOptind++;
+            if ( nSample <= 0 )
+                goto usage;
+            break;
+        case 'v':
+            fVerbose = true;
+            break;
+        case 'h':
+        default:
+            goto usage;
+        }
+    }
+
+    // get the current network
+    pNtk = Abc_FrameReadNtk(pAbc);
+    assert(pNtk != NULL && Abc_NtkIsComb(pNtk));
+    nPI = Abc_NtkPiNum(pNtk);
+    vMinterm = Ntk_Minterm(pNtk, nSample);
+
+	for (int i = 0; i < vMinterm.size(); i++)
+	{
+		vector<bool> minterm = vMinterm[i];
+		assert(minterm.size() == nPI);
+		for (int j = 0; j < minterm.size(); j++)
+			cout << minterm[j];
+		cout << "\n";
+	}
+
+	return 0;
+
+usage:
+    Abc_Print( -2, "usage: sampleWit [-s <num>] [-vh]\n" );
+    Abc_Print( -2, "\t        Generate witnesses of the current network\n" );
+    Abc_Print( -2, "\t-s <num> : set the number of samples\n");
     Abc_Print( -2, "\t-v       : verbose\n");
     Abc_Print( -2, "\t-h       : print the command usage\n");
     return 0;
@@ -663,8 +832,10 @@ usage:
 void init(Abc_Frame_t* pAbc)
 {
     Cmd_CommandAdd( pAbc, "Sample", "info", Info_Command, 0);
+    Cmd_CommandAdd( pAbc, "Sample", "sampleCkt", SampleCkt_Command, 0);
     Cmd_CommandAdd( pAbc, "Sample", "sampleGen", SampleGen_Command, 0);
     Cmd_CommandAdd( pAbc, "Sample", "sampleCnt", SampleCnt_Command, 0);
+    Cmd_CommandAdd( pAbc, "Sample", "sampleWit", SampleWit_Command, 0);
     Cmd_CommandAdd( pAbc, "Sample", "sampleChiTest", SampleChiTest_Command, 0);
     Cmd_CommandAdd( pAbc, "Sample", "sampleStuckTest", SampleStuckTest_Command, 0);
 }

@@ -1,7 +1,6 @@
 #include "ext-sample/utils.h"
 #include <iostream>
 #include <cassert>
-#include <vector>
 #include <random>
 #include <ctime>
 
@@ -68,4 +67,53 @@ Abc_Ntk_t * Ntk_StuckGen(Abc_Ntk_t * pNtk)
         Abc_AigReplace( (Abc_Aig_t*)pNtkRes->pManFunc, vAnd[picked], pAigOne, 0 );
 
     return pNtkRes;
+}
+
+// convert a single-output AIG to BDD and enumerate the minterms
+vector<vector<bool>> Ntk_Minterm(Abc_Ntk_t * pNtk, int nSample)
+{
+    int nPI, nMinterm;
+    int count;
+    Abc_Obj_t * pObj;
+    DdNode * df;
+    DdNode ** nodes;
+	DdManager * dd;
+    vector<vector<bool>> vMinterm;
+
+    assert(pNtk != NULL && Abc_NtkIsComb(pNtk));
+    assert(Abc_NtkPoNum(pNtk)==1);
+    if (!Abc_NtkIsStrash(pNtk))
+        pNtk = Abc_NtkStrash(pNtk, 0, 1, 0);
+    nPI = Abc_NtkPiNum(pNtk);
+
+    // convert to BDD
+    Abc_NtkBuildGlobalBdds(pNtk, ABC_INFINITY, 1, 1, 0, 0);
+    pObj = Abc_NtkPo(pNtk, 0);
+    df = (DdNode *)Abc_ObjGlobalBdd(pObj);
+    dd = (DdManager *)Abc_NtkGlobalBddMan( pNtk );
+
+    // get witness
+    nMinterm = Cudd_CountMinterm(dd, df, nPI);
+	nodes = new DdNode*[nPI];
+	for (int i = 0; i < nPI; i++)
+		nodes[i] = Cudd_ReadVars(dd, i);
+    count = 0;
+	while (df != Cudd_ReadLogicZero(dd) && count < nSample)
+    {
+		DdNode * mintermNode = Cudd_bddPickOneMinterm(dd, df, nodes, nPI);
+    	Cudd_Ref(mintermNode);
+		vector<bool> minterm;
+        for (int i = 0; i < nPI; i++)
+            minterm.push_back(Cudd_bddLeq(dd, mintermNode, nodes[i]));
+        vMinterm.push_back(minterm);
+		DdNode *df2 = Cudd_bddAnd(dd, df, Cudd_Not(mintermNode));
+    	Cudd_Ref(df2);
+    	Cudd_RecursiveDeref(dd, df);
+    	df = df2;	
+		count++;
+    }
+
+    Abc_NtkFreeGlobalBdds( pNtk, 1 );
+
+    return vMinterm;
 }
