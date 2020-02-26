@@ -7,5 +7,8 @@ Abc_Ntk_t * Ntk_Optimize(Abc_Ntk_t * pNtk);
 // generate single stuck-at fault
 Abc_Ntk_t * Ntk_StuckGen(Abc_Ntk_t * pNtk);
 
-// enumerate a certain number of minterms
-std::vector<std::vector<bool>> Ntk_Minterm(Abc_Ntk_t * pNtk, int nSample);
+// convert to BDD and enumerate a certain number of minterms
+std::vector<int*> Ntk_Minterm(Abc_Ntk_t * pNtk, int num);
+
+// generate samples
+int genSample(Abc_Ntk_t * pNtk, int hashBits, int loThresh, int hiThresh, std::vector<int*> &vSample);

@@ -5,6 +5,7 @@
 
 #include <iostream>
 #include <fstream>
+#include <cmath>
 #include <ctime>
 #include <unordered_map>
 #include <bitset>
@@ -402,15 +403,23 @@ usage:
 int SampleWit_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
 {
     char c;
-    int nPI, nSample = 0;
-    bool fVerbose = false;
-    Abc_Ntk_t * pNtk;
+    int nPI, nSample = 0, nGen = 0, nSize;
+	int hashBits = 0, loThresh, hiThresh;
+	double kappa = 0.638;
+    double pivot;
+	bool fVerbose = false, fRedirect = false;
+   	char * filename;
+	fstream file;
+    Abc_Ntk_t * pNtk, * pCkt, * pNtkRes;
     Abc_Obj_t * pObj;
-	vector<vector<bool>> vMinterm;
+	vector<int*> vMinterm;
+	vector<int*> vSample;
+	vector<int*> vResult;
+    SampleCircuit sc;
 
     // parse arguments
     Extra_UtilGetoptReset();
-    while ( ( c = Extra_UtilGetopt( argc, argv, "svh" ) ) != EOF )
+    while ( ( c = Extra_UtilGetopt( argc, argv, "srvh" ) ) != EOF )
     {
         switch ( c )
         {
@@ -425,6 +434,16 @@ int SampleWit_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
             if ( nSample <= 0 )
                 goto usage;
             break;
+        case 'r':
+            if ( globalUtilOptind >= argc )
+            {
+                Abc_Print( -1, "Command line switch \"-r\" should be followed by an string.\n" );
+                goto usage;
+            }
+            fRedirect = true;
+            filename = argv[globalUtilOptind];
+            globalUtilOptind++;
+            break;
         case 'v':
             fVerbose = true;
             break;
@@ -437,16 +456,80 @@ int SampleWit_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
     // get the current network
     pNtk = Abc_FrameReadNtk(pAbc);
     assert(pNtk != NULL && Abc_NtkIsComb(pNtk));
+    if (!Abc_NtkIsStrash(pNtk))
+        pNtk = Abc_NtkStrash(pNtk, 0, 1, 0);
     nPI = Abc_NtkPiNum(pNtk);
-    vMinterm = Ntk_Minterm(pNtk, nSample);
-
-	for (int i = 0; i < vMinterm.size(); i++)
+	
+	// estimate parameters
+	pivot = ceil(4.03 * (1 + 1/kappa) * (1 + 1/kappa));
+	hiThresh = (int)ceil(1 + sqrt(2)*(1+kappa)*pivot);	
+	loThresh = (int)floor(pivot / (sqrt(2)*(1+kappa)));	
+    for (int i = nPI-1; i > 0; i--)
 	{
-		vector<bool> minterm = vMinterm[i];
-		assert(minterm.size() == nPI);
-		for (int j = 0; j < minterm.size(); j++)
-			cout << minterm[j];
-		cout << "\n";
+		sc.setIOnum(i, nPI);
+        pCkt = sc.genCircuit();
+		pNtkRes = sc.connect(pNtk);
+    	vMinterm = Ntk_Minterm(pNtkRes, 61);
+		Abc_NtkDelete(pCkt);
+		Abc_NtkDelete(pNtkRes);
+		nSize = vMinterm.size();
+		if (nSize >= 1 && nSize <= 60)
+		{
+			hashBits = (int)round(log2(nSize)+(nPI-i)+log2(1.8)-log2(pivot));
+			break;
+		}
+	}
+	if (hashBits <= 2)
+	{
+		Abc_Print( 2, "Too few solutions\n");
+		return 0;
+	}
+
+	if (fVerbose)
+	{
+		Abc_Print( 2, "hashBits: %d\n", hashBits );
+		Abc_Print( 2, "loThresh: %d, hiThresh: %d\n", loThresh, hiThresh );
+	}
+	// generate samples
+	while (nGen < nSample)
+	{
+		if (genSample(pNtk, hashBits, loThresh, hiThresh, vSample))
+		{		
+			assert(vSample.size() == loThresh);
+			for (int i = 0; i < vSample.size() && nGen < nSample; i++, nGen++)
+				vResult.push_back(vSample[i]);
+		}
+	}
+
+	// dump the result
+	assert(vResult.size() == nSample);
+	if (fRedirect)
+	{
+        file.open(filename, ios::out|ios::trunc);
+        assert(file.is_open());
+		for (int i = 0; i < nSample; i++)
+		{
+			for (int j = 0; j < nPI; j++)
+			{
+				if (vResult[i][j] == 0)
+					file << "-";
+				file << j+1 << " ";
+			}
+			file << "\n";
+		}
+	}
+	else
+	{
+		for (int i = 0; i < nSample; i++)
+		{
+			for (int j = 0; j < nPI; j++)
+			{
+				if (vResult[i][j] == 0)
+					cout << "-";
+				cout << j+1 << " ";
+			}
+			cout << "\n";
+		}
 	}
 
 	return 0;
@@ -454,9 +537,10 @@ int SampleWit_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
 usage:
     Abc_Print( -2, "usage: sampleWit [-s <num>] [-vh]\n" );
     Abc_Print( -2, "\t        Generate witnesses of the current network\n" );
-    Abc_Print( -2, "\t-s <num> : set the number of samples\n");
-    Abc_Print( -2, "\t-v       : verbose\n");
-    Abc_Print( -2, "\t-h       : print the command usage\n");
+    Abc_Print( -2, "\t-s <num>  : set the number of samples\n");
+    Abc_Print( -2, "\t-r <file> : redirect the result to the given file\n");
+    Abc_Print( -2, "\t-v        : verbose\n");
+    Abc_Print( -2, "\t-h        : print the command usage\n");
     return 0;
 }
 

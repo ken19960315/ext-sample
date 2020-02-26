@@ -3,9 +3,12 @@
 #include <cassert>
 #include <random>
 #include <ctime>
+#include <algorithm>
 
 #include "base/main/main.h"
 #include "base/main/mainInt.h"
+
+#include "ext-sample/SampleCircuit.h"
 
 using namespace std;
 
@@ -70,7 +73,7 @@ Abc_Ntk_t * Ntk_StuckGen(Abc_Ntk_t * pNtk)
 }
 
 // convert a single-output AIG to BDD and enumerate the minterms
-vector<vector<bool>> Ntk_Minterm(Abc_Ntk_t * pNtk, int nSample)
+vector<int*> Ntk_Minterm(Abc_Ntk_t * pNtk, int num)
 {
     int nPI, nMinterm;
     int count;
@@ -78,7 +81,7 @@ vector<vector<bool>> Ntk_Minterm(Abc_Ntk_t * pNtk, int nSample)
     DdNode * df;
     DdNode ** nodes;
 	DdManager * dd;
-    vector<vector<bool>> vMinterm;
+    vector<int*> vMinterm;
 
     assert(pNtk != NULL && Abc_NtkIsComb(pNtk));
     assert(Abc_NtkPoNum(pNtk)==1);
@@ -98,13 +101,13 @@ vector<vector<bool>> Ntk_Minterm(Abc_Ntk_t * pNtk, int nSample)
 	for (int i = 0; i < nPI; i++)
 		nodes[i] = Cudd_ReadVars(dd, i);
     count = 0;
-	while (df != Cudd_ReadLogicZero(dd) && count < nSample)
+	while (df != Cudd_ReadLogicZero(dd) && count < num)
     {
 		DdNode * mintermNode = Cudd_bddPickOneMinterm(dd, df, nodes, nPI);
     	Cudd_Ref(mintermNode);
-		vector<bool> minterm;
+		int* minterm = new int[nPI];
         for (int i = 0; i < nPI; i++)
-            minterm.push_back(Cudd_bddLeq(dd, mintermNode, nodes[i]));
+            minterm[i] = Cudd_bddLeq(dd, mintermNode, nodes[i]);
         vMinterm.push_back(minterm);
 		DdNode *df2 = Cudd_bddAnd(dd, df, Cudd_Not(mintermNode));
     	Cudd_Ref(df2);
@@ -116,4 +119,39 @@ vector<vector<bool>> Ntk_Minterm(Abc_Ntk_t * pNtk, int nSample)
     Abc_NtkFreeGlobalBdds( pNtk, 1 );
 
     return vMinterm;
+}
+
+int genSample(Abc_Ntk_t * pNtk, int hashBits, int loThresh, int hiThresh, vector<int*> &vSample)
+{
+    SampleCircuit sc;
+	vector<int> V{hashBits, hashBits-1, hashBits-2};
+	vector<int*> vMinterm;
+    Abc_Ntk_t * pCkt, * pNtkRes;
+    int nPI = Abc_NtkPiNum(pNtk);
+
+    random_shuffle(V.begin(), V.end());
+    vSample.clear();
+	for (int i = 0; i < V.size(); i++)
+	{
+		sc.setIOnum(nPI-V[i], nPI);
+        pCkt = sc.genCircuit();
+		pNtkRes = sc.connect(pNtk);
+    	vMinterm = Ntk_Minterm(pNtkRes, hiThresh);
+		int nSize = vMinterm.size();
+		if (nSize >= loThresh && nSize < hiThresh)
+		{
+			for (int j = 0; j < loThresh; j++)
+			{
+            	int * sample = Abc_NtkVerifySimulatePattern( pCkt, vMinterm[j] );
+			    vSample.push_back(sample);
+            }
+		    Abc_NtkDelete(pCkt);
+		    Abc_NtkDelete(pNtkRes);
+			return 1;
+		}
+		Abc_NtkDelete(pCkt);
+		Abc_NtkDelete(pNtkRes);
+	}
+
+    return 0;
 }
