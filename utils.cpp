@@ -155,3 +155,24 @@ int genSample(Abc_Ntk_t * pNtk, int hashBits, int loThresh, int hiThresh, vector
 
     return 0;
 }
+
+void split(vector<string> &vs, string str, char delim)
+{
+    size_t pos;
+    string s;
+
+    vs.clear();
+    while ( (pos=str.find(delim)) != string::npos)
+    {
+        if (pos!=0)
+        {
+            s = str.substr(0, pos);
+            vs.push_back(s);
+        }
+        str = str.substr(pos+1);
+    }
+    if (str.length()!=0)
+        vs.push_back(str);
+
+    return;
+}

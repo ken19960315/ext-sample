@@ -155,7 +155,7 @@ Abc_Ntk_t* SampleCircuit::genCircuit(bool fVerbose)
     pivot.clear();
     Mat.clear();
     
-    //
+    // remove dangling nodes
     Abc_AigCleanup( (Abc_Aig_t*)pAig->pManFunc );
 
     // return constructed AIG

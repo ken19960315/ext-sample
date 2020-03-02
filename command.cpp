@@ -15,9 +15,7 @@
 #include "ext-sample/chisqr.h"
 #include "ext-sample/utils.h"
 
-extern "C"{
-void Abc_NtkPrintStrSupports( Abc_Ntk_t * pNtk, int fMatrix );
-}
+extern "C" void Abc_NtkPrintStrSupports( Abc_Ntk_t * pNtk, int fMatrix );
 
 namespace
 {
@@ -105,6 +103,120 @@ usage:
     Abc_Print( -2, "\t-i        : print the IO num\n");
     Abc_Print( -2, "\t-s        : print the size\n");
     Abc_Print( -2, "\t-h        : print the command usage\n");
+    return 0;
+}
+
+// ABC command: print/write network infomation
+int ReadCNF_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
+{
+	char c;
+	char * filename;
+	char * pCircuitName = "transformedCNF";
+	string line;
+	int nVar, var;
+	bool fVarInit = false;
+	fstream fin;
+	vector<string> vSplit;
+	Abc_Ntk_t * pAig;
+	Abc_Obj_t * pAigOne, * pAigZero;
+	Abc_Obj_t * pObjA, * pObjClause, * pObjF;
+
+	// parse arguments
+    Extra_UtilGetoptReset();
+    while ( ( c = Extra_UtilGetopt( argc, argv, "ih" ) ) != EOF )
+    {
+        switch ( c )
+        {
+        case 'i':
+            if ( globalUtilOptind >= argc )
+            {
+                Abc_Print( -1, "Command line switch \"-i\" should be followed by an string.\n" );
+                goto usage;
+            }
+            filename = argv[globalUtilOptind];
+            assert(filename != NULL);
+            globalUtilOptind++;
+            break;
+        case 'h':
+            goto usage;
+        default:
+            goto usage;
+        }
+    }
+
+	// initialize AIG
+    pAig = Abc_NtkAlloc( ABC_NTK_STRASH, ABC_FUNC_AIG, 1 ); 
+    pAig->pName = Extra_UtilStrsav( pCircuitName );
+
+    // const node
+    pAigOne  = Abc_AigConst1(pAig);
+    pAigZero = Abc_ObjNot(pAigOne);
+	pObjF = pAigOne;
+	
+	// parse CNF & construct AIG
+    fin.open(filename, ios::in);
+    assert(fin.is_open());
+	while (getline(fin, line))
+	{
+		if (line[0] == 'c')
+			continue;
+		else if (line[0] == 'p')
+		{
+			assert(!fVarInit);
+			split(vSplit, line);
+			nVar = stoi(vSplit[2]); 
+    		// create PI/PO 
+    		for ( int i = 0; i < nVar; i++ )
+    		    pObjA = Abc_NtkCreatePi( pAig );
+    		pObjA = Abc_NtkCreatePo( pAig );
+			fVarInit = true;
+		}
+		else
+		{
+			assert(fVarInit);
+			split(vSplit, line);
+			if (vSplit.size() == 0) break;
+			pObjClause = pAigZero;
+			for (int i = 0; i < vSplit.size()-1; i++)
+			{
+				var = stoi(vSplit[i]);
+				pObjA = Abc_NtkPi(pAig, abs(var)-1);
+				if (var < 0)
+					pObjA = Abc_ObjNot(pObjA);
+				pObjClause = Abc_AigOr( (Abc_Aig_t*)pAig->pManFunc, pObjClause, pObjA );
+			}
+			pObjF = Abc_AigAnd( (Abc_Aig_t*)pAig->pManFunc, pObjF, pObjClause );
+		}
+	}
+
+	// connect to PO
+	Abc_ObjAddFanin(Abc_NtkPo(pAig, 0), pObjF);
+
+	// remove dangling nodes
+    Abc_AigCleanup( (Abc_Aig_t*)pAig->pManFunc );
+    
+	// add names
+	Abc_NtkAddDummyPiNames( pAig );
+	Abc_NtkAddDummyPoNames( pAig );
+
+	// check network
+    if ( !Abc_NtkCheck( pAig ) )
+    {
+        printf( "The AIG construction has failed.\n" );
+        Abc_NtkDelete( pAig );
+        return NULL;
+    }
+	
+    // replace the current network
+    Abc_FrameReplaceCurrentNetwork(pAbc, pAig);
+
+    return 0;
+
+usage:
+    Abc_Print( -2, "usage: read_cnf [-i <cnf>] [-h]\n" );
+    Abc_Print( -2, "\t        Read DIMACS CNF file and construct corresponding AIG network\n" );
+    Abc_Print( -2, "\t-i <cnf> : CNF file input\n");
+    Abc_Print( -2, "\t-h       : print the command usage\n");
     return 0;
 }
 
@@ -916,6 +1028,7 @@ usage:
 void init(Abc_Frame_t* pAbc)
 {
     Cmd_CommandAdd( pAbc, "Sample", "info", Info_Command, 0);
+    Cmd_CommandAdd( pAbc, "Sample", "read_cnf", ReadCNF_Command, 0);
     Cmd_CommandAdd( pAbc, "Sample", "sampleCkt", SampleCkt_Command, 0);
     Cmd_CommandAdd( pAbc, "Sample", "sampleGen", SampleGen_Command, 0);
     Cmd_CommandAdd( pAbc, "Sample", "sampleCnt", SampleCnt_Command, 0);
