@@ -204,7 +204,7 @@ int ReadCNF_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
     {
         printf( "The AIG construction has failed.\n" );
         Abc_NtkDelete( pAig );
-        return NULL;
+        return 0;
     }
 	
     // replace the current network
@@ -303,10 +303,10 @@ int SampleCkt_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
 
 usage:
     Abc_Print( -2, "usage: sampleCkt [-i <num>] [-o <num> / -c] [-vh]\n" );
-    Abc_Print( -2, "\t        Generate a sample circuit with given PI and PO number\n" );
+    Abc_Print( -2, "\t        Generate a sampling circuit with given PI and PO number\n" );
     Abc_Print( -2, "\t-i <num>  : set the number of PI\n");
     Abc_Print( -2, "\t-o <num>  : set the number of PO\n");
-    Abc_Print( -2, "\t-c        : consider supports correlation\n");
+    Abc_Print( -2, "\t-c        : consider supports information of the current network\n");
     Abc_Print( -2, "\t-v        : verbose\n");
     Abc_Print( -2, "\t-h        : print the command usage\n");
     return 0;
@@ -371,8 +371,11 @@ int SampleGen_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
     assert(nSample <= pow(2,nPI));
 
     // generate samples
-    file.open(filename, ios::out|ios::trunc);
-    assert(file.is_open());
+    if (fRedirect)    
+    {
+        file.open(filename, ios::out|ios::trunc);
+        assert(file.is_open());
+    }
     for (int i = 0; i < int(pow(2,nPI)); i++)
         vNum.push_back(i);
     random_shuffle(vNum.begin(), vNum.end());
@@ -503,9 +506,9 @@ int SampleCnt_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
 
 usage:
     Abc_Print( -2, "usage: sampleCnt [-i <num>] [-cvh]\n" );
-    Abc_Print( -2, "\t        Generate a sample circuit with given PI number and connect it to current AIG network\n" );
+    Abc_Print( -2, "\t        Generate a sampling circuit with given PI number and connect it to the current network\n" );
     Abc_Print( -2, "\t-i <num> : set the number of PI\n");
-    Abc_Print( -2, "\t-c       : consider supports correlation\n");
+    Abc_Print( -2, "\t-c       : consider supports information of the current network\n");
     Abc_Print( -2, "\t-v       : verbose\n");
     Abc_Print( -2, "\t-h       : print the command usage\n");
     return 0;
@@ -524,7 +527,6 @@ int SampleWit_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
    	char circuitname[10];
 	fstream file;
     Abc_Ntk_t * pNtk, * pCkt, * pNtkRes;
-    Abc_Obj_t * pObj;
 	vector<int*> vMinterm;
 	vector<int*> vSample;
 	vector<int*> vResult;
@@ -653,7 +655,7 @@ int SampleWit_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
 
 usage:
     Abc_Print( -2, "usage: sampleWit [-s <num>] [-vh]\n" );
-    Abc_Print( -2, "\t        Generate witnesses of the current network\n" );
+    Abc_Print( -2, "\t        Generate witnesses of the current network and dump the sampling circuits named by \"wit<num>.aig\"\n" );
     Abc_Print( -2, "\t-s <num>  : set the number of samples\n");
     Abc_Print( -2, "\t-r <file> : redirect the result to the given file\n");
     Abc_Print( -2, "\t-v        : verbose\n");
