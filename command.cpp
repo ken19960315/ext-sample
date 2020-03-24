@@ -515,12 +515,13 @@ usage:
 int SampleWit_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
 {
     char c;
-    int nPI, nSample = 0, nGen = 0, nSize;
+    int nPI, nSample = 0, nGen = 0, nCircuit = 0, nSize;
 	int hashBits = 0, loThresh, hiThresh;
 	double kappa = 0.638;
     double pivot;
 	bool fVerbose = false, fRedirect = false;
    	char * filename;
+   	char circuitname[10];
 	fstream file;
     Abc_Ntk_t * pNtk, * pCkt, * pNtkRes;
     Abc_Obj_t * pObj;
@@ -605,12 +606,16 @@ int SampleWit_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
 	// generate samples
 	while (nGen < nSample)
 	{
-		if (genSample(pNtk, hashBits, loThresh, hiThresh, vSample))
+		if ( (pNtkRes=genSample(pNtk, hashBits, loThresh, hiThresh, vSample)) != NULL )
 		{		
 			assert(vSample.size() == loThresh);
 			for (int i = 0; i < vSample.size() && nGen < nSample; i++, nGen++)
 				vResult.push_back(vSample[i]);
-		}
+            // dump the circuit
+            sprintf(circuitname, "wit%d.aig", nCircuit);
+            Io_WriteAiger( pNtkRes, circuitname, 0, 0, 0 ); //io name,compact,conanical
+		    nCircuit++;
+        }
 	}
 
 	// dump the result
@@ -630,7 +635,7 @@ int SampleWit_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
 			file << "\n";
 		}
 	}
-	else
+	/*else
 	{
 		for (int i = 0; i < nSample; i++)
 		{
@@ -642,7 +647,7 @@ int SampleWit_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
 			}
 			cout << "\n";
 		}
-	}
+	}*/
 
 	return 0;
 

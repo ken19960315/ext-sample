@@ -12,7 +12,7 @@ Abc_Ntk_t * Ntk_StuckGen(Abc_Ntk_t * pNtk);
 std::vector<int*> Ntk_Minterm(Abc_Ntk_t * pNtk, int num);
 
 // generate samples
-int genSample(Abc_Ntk_t * pNtk, int hashBits, int loThresh, int hiThresh, std::vector<int*> &vSample);
+Abc_Ntk_t * genSample(Abc_Ntk_t * pNtk, int hashBits, int loThresh, int hiThresh, std::vector<int*> &vSample);
 
 // split the string by delim
 void split(std::vector<std::string> &vs, std::string str, char delim=' ');

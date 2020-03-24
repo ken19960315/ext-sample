@@ -16,6 +16,7 @@ extern "C"{
 Abc_Ntk_t * Abc_NtkDC2( Abc_Ntk_t * pNtk, int fBalance, int fUpdateLevel, int fFanout, int fPower, int fVerbose );
 Abc_Ntk_t * Abc_NtkDarSeqSweep2( Abc_Ntk_t * pNtk, Ssw_Pars_t * pPars );
 Abc_Ntk_t * Abc_NtkDarFraig( Abc_Ntk_t * pNtk, int nConfLimit, int fDoSparse, int fProve, int fTransfer, int fSpeculate, int fChoicing, int fVerbose );
+void Io_WriteAiger( Abc_Ntk_t * pNtk, char * pFileName, int fWriteSymbols, int fCompact, int fUnique );
 }
 
 Abc_Ntk_t * Ntk_Optimize(Abc_Ntk_t* pNtk)
@@ -121,12 +122,13 @@ vector<int*> Ntk_Minterm(Abc_Ntk_t * pNtk, int num)
     return vMinterm;
 }
 
-int genSample(Abc_Ntk_t * pNtk, int hashBits, int loThresh, int hiThresh, vector<int*> &vSample)
+Abc_Ntk_t * genSample(Abc_Ntk_t * pNtk, int hashBits, int loThresh, int hiThresh, vector<int*> &vSample)
 {
     SampleCircuit sc;
 	vector<int> V{hashBits, hashBits-1, hashBits-2};
 	vector<int*> vMinterm;
-    Abc_Ntk_t * pCkt, * pNtkRes;
+    Abc_Ntk_t * pCkt;
+    static Abc_Ntk_t * pNtkRes;
     int nPI = Abc_NtkPiNum(pNtk);
 
     random_shuffle(V.begin(), V.end());
@@ -145,15 +147,14 @@ int genSample(Abc_Ntk_t * pNtk, int hashBits, int loThresh, int hiThresh, vector
             	int * sample = Abc_NtkVerifySimulatePattern( pCkt, vMinterm[j] );
 			    vSample.push_back(sample);
             }
-		    Abc_NtkDelete(pCkt);
-		    Abc_NtkDelete(pNtkRes);
-			return 1;
+            Abc_NtkDelete(pNtkRes);
+			return pCkt;
 		}
 		Abc_NtkDelete(pCkt);
 		Abc_NtkDelete(pNtkRes);
 	}
 
-    return 0;
+    return NULL;
 }
 
 void split(vector<string> &vs, string str, char delim)
