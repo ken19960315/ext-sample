@@ -14,10 +14,14 @@ using namespace std;
 #define SWAP(a, b)  do {a ^= b; b ^= a; a ^= b; } while(0)
 #define ObjId(pObj) Abc_ObjId(Abc_ObjRegular(pObj))
 
+SampleCircuit::~SampleCircuit()
+{
+    XOR.clear();
+}
+
 SampleCircuit::SampleCircuit()
 {
     fInit = false;
-    fGen = false;
     seed = chrono::system_clock::now().time_since_epoch().count();
     srand(seed);
 }
@@ -29,7 +33,6 @@ SampleCircuit::SampleCircuit(int nPI, int nPO)
     this->nPO = nPO;
 
     fInit = true;
-    fGen = false;
     seed = chrono::system_clock::now().time_since_epoch().count();
     srand(seed);
 }
@@ -49,34 +52,35 @@ Abc_Ntk_t* SampleCircuit::genCircuit(bool fVerbose)
     vector< vector<bool> > Mat;
     char* pCircuitName = "sample";
     Abc_Obj_t * pObj;
-    
+    Abc_Ntk_t * pCkt;    
+
     // allocate memory
     XOR.resize(nPO);
     Mat.resize(nPO-nPI);
 
     // initialize
-    pAig = Abc_NtkAlloc( ABC_NTK_STRASH, ABC_FUNC_AIG, 1 ); 
-    pAig->pName = Extra_UtilStrsav( pCircuitName );
+    pCkt = Abc_NtkAlloc( ABC_NTK_STRASH, ABC_FUNC_AIG, 1 ); 
+    pCkt->pName = Extra_UtilStrsav( pCircuitName );
     
     // create PI/PO 
     for ( int i = 0; i < nPI; i++ )
     {
         char pObjName[10];
-        pObj = Abc_NtkCreatePi( pAig );
+        pObj = Abc_NtkCreatePi( pCkt );
         sprintf(pObjName, "SC_i%d", i+1);
         Abc_ObjAssignName( pObj, pObjName, NULL );
     }
     for ( int i = 0; i < nPO; i++ )
     {
         char pObjName[10];
-        pObj = Abc_NtkCreatePo( pAig );
+        pObj = Abc_NtkCreatePo( pCkt );
         sprintf(pObjName, "SC_o%d", i+1);
         Abc_ObjAssignName( pObj, pObjName, NULL );
     }
 
     // const node
-    Abc_Obj_t * pAigOne  = Abc_AigConst1(pAig);
-    Abc_Obj_t * pAigZero = Abc_ObjNot(pAigOne);
+    Abc_Obj_t * pCktOne  = Abc_AigConst1(pCkt);
+    Abc_Obj_t * pCktZero = Abc_ObjNot(pCktOne);
 
     // generate XOR constraints
     assert(fInit);
@@ -115,8 +119,8 @@ Abc_Ntk_t* SampleCircuit::genCircuit(bool fVerbose)
             XOR_vec[0] = 0;
             XOR_vec[1] = mPI;
             XOR[mPO] = XOR_vec;
-            pObjF = Abc_AigAnd((Abc_Aig_t*)pAig->pManFunc, Abc_NtkPi(pAig, mPI++), pAigOne);
-            Abc_ObjAddFanin(Abc_NtkPo(pAig, mPO), pObjF);
+            pObjF = Abc_AigAnd((Abc_Aig_t*)pCkt->pManFunc, Abc_NtkPi(pCkt, mPI++), pCktOne);
+            Abc_ObjAddFanin(Abc_NtkPo(pCkt, mPO), pObjF);
         }
         else
         {
@@ -130,23 +134,23 @@ Abc_Ntk_t* SampleCircuit::genCircuit(bool fVerbose)
     for (int i = 0; i < nPO-nPI; i++)
     {
         if (Mat[i][nPO])
-            pObjF = pAigOne;
+            pObjF = pCktOne;
         else
-            pObjF = pAigZero;
+            pObjF = pCktZero;
         vector<int> XOR_vec;
         XOR_vec.push_back(Mat[i][nPO]);
         for (int j = *iter+1; j < nPO; j++)
         {
             if (Mat[i][j])
             {
-                pObjF = Abc_AigXor((Abc_Aig_t*)pAig->pManFunc, pObjF, Abc_NtkPi(pAig,PImap[j]));
+                pObjF = Abc_AigXor((Abc_Aig_t*)pCkt->pManFunc, pObjF, Abc_NtkPi(pCkt,PImap[j]));
                 XOR_vec.push_back(PImap[j]);
             }
         }
         XOR[restPO.front()] = XOR_vec;
 
         // connect to PO
-        Abc_ObjAddFanin(Abc_NtkPo(pAig, restPO.front()), pObjF);
+        Abc_ObjAddFanin(Abc_NtkPo(pCkt, restPO.front()), pObjF);
         restPO.pop();
 
         iter++;
@@ -156,17 +160,16 @@ Abc_Ntk_t* SampleCircuit::genCircuit(bool fVerbose)
     Mat.clear();
     
     // remove dangling nodes
-    Abc_AigCleanup( (Abc_Aig_t*)pAig->pManFunc );
+    Abc_AigCleanup( (Abc_Aig_t*)pCkt->pManFunc );
 
     // return constructed AIG
-    if ( !Abc_NtkCheck( pAig ) )
+    if ( !Abc_NtkCheck( pCkt ) )
     {
         printf( "The AIG construction has failed.\n" );
-        Abc_NtkDelete( pAig );
+        Abc_NtkDelete( pCkt );
         return NULL;
     }
-    fGen = true;
-    return Abc_NtkDup( pAig );
+    return pCkt;
 }
 
 bool cmp(vector<int> i, vector<int> j) { return (i.size()>j.size()); }
@@ -177,6 +180,7 @@ Abc_Ntk_t* SampleCircuit::genCircuit(Abc_Ntk_t* pNtk, bool fVerbose)
     vector< vector<bool> > Mat;
     char* pName = "sample";
     Abc_Obj_t * pCo, * pObj, * pObjF;
+    Abc_Ntk_t * pCkt;
     Vec_Ptr_t * vSupp;
     vector< vector<int> > sup_vec; 
     vector<int> vSuppRef; 
@@ -209,28 +213,28 @@ Abc_Ntk_t* SampleCircuit::genCircuit(Abc_Ntk_t* pNtk, bool fVerbose)
     sort(sup_vec.begin(), sup_vec.end(), cmp);
 
     // initialize
-    pAig = Abc_NtkAlloc( ABC_NTK_STRASH, ABC_FUNC_AIG, 1 ); 
-    pAig->pName = Extra_UtilStrsav( pName );
+    pCkt = Abc_NtkAlloc( ABC_NTK_STRASH, ABC_FUNC_AIG, 1 ); 
+    pCkt->pName = Extra_UtilStrsav( pName );
     
     // create PI/PO 
     for ( int i = 0; i < nPI; i++ )
     {
         char pObjName[10];
-        pObj = Abc_NtkCreatePi( pAig );
+        pObj = Abc_NtkCreatePi( pCkt );
         sprintf(pObjName, "SC_i%d", i+1);
         Abc_ObjAssignName( pObj, pObjName, NULL );
     }
     for ( int i = 0; i < nPO; i++ )
     {
         char pObjName[10];
-        pObj = Abc_NtkCreatePo( pAig );
+        pObj = Abc_NtkCreatePo( pCkt );
         sprintf(pObjName, "SC_o%d", i+1);
         Abc_ObjAssignName( pObj, pObjName, NULL );
     }
 
     // const node
-    Abc_Obj_t * pAigOne  = Abc_AigConst1(pAig);
-    Abc_Obj_t * pAigZero = Abc_ObjNot(pAigOne);
+    Abc_Obj_t * pCktOne  = Abc_AigConst1(pCkt);
+    Abc_Obj_t * pCktZero = Abc_ObjNot(pCktOne);
 
     // generate sampling circuit
     assert(fInit);
@@ -258,8 +262,8 @@ Abc_Ntk_t* SampleCircuit::genCircuit(Abc_Ntk_t* pNtk, bool fVerbose)
                 XOR_vec[0] = 0;
                 XOR_vec[1] = var[i];
                 XOR[supp[i]] = XOR_vec;
-                pObjF = Abc_AigAnd((Abc_Aig_t*)pAig->pManFunc, Abc_NtkPi(pAig, var[i]), pAigOne);
-                Abc_ObjAddFanin(Abc_NtkPo(pAig, supp[i]), pObjF);
+                pObjF = Abc_AigAnd((Abc_Aig_t*)pCkt->pManFunc, Abc_NtkPi(pCkt, var[i]), pCktOne);
+                Abc_ObjAddFanin(Abc_NtkPo(pCkt, supp[i]), pObjF);
             }
         }
         else
@@ -302,8 +306,8 @@ Abc_Ntk_t* SampleCircuit::genCircuit(Abc_Ntk_t* pNtk, bool fVerbose)
                     XOR_vec[0] = 0;
                     XOR_vec[1] = mPI;
                     XOR[supp[mPO]] = XOR_vec;
-                    pObjF = Abc_AigAnd((Abc_Aig_t*)pAig->pManFunc, Abc_NtkPi(pAig, mPI++), pAigOne);
-                    Abc_ObjAddFanin(Abc_NtkPo(pAig, supp[mPO]), pObjF);
+                    pObjF = Abc_AigAnd((Abc_Aig_t*)pCkt->pManFunc, Abc_NtkPi(pCkt, mPI++), pCktOne);
+                    Abc_ObjAddFanin(Abc_NtkPo(pCkt, supp[mPO]), pObjF);
                 }
                 else
                 {
@@ -317,23 +321,23 @@ Abc_Ntk_t* SampleCircuit::genCircuit(Abc_Ntk_t* pNtk, bool fVerbose)
             for (i = 0; i < nPOc-nPI; i++)
             {
                 if (Mat[i][nPOc])
-                    pObjF = pAigOne;
+                    pObjF = pCktOne;
                 else
-                    pObjF = pAigZero;
+                    pObjF = pCktZero;
                 vector<int> XOR_vec;
                 XOR_vec.push_back(Mat[i][nPOc]);
                 for (j = *iter+1; j < nPOc; j++)
                 {
                     if (Mat[i][j])
                     {
-                        pObjF = Abc_AigXor((Abc_Aig_t*)pAig->pManFunc, pObjF, Abc_NtkPi(pAig,PImap[j]));
+                        pObjF = Abc_AigXor((Abc_Aig_t*)pCkt->pManFunc, pObjF, Abc_NtkPi(pCkt,PImap[j]));
                         XOR_vec.push_back(PImap[j]);
                     }
                 }
                 XOR[restPO.front()] = XOR_vec;
 
                 // connect to PO
-                Abc_ObjAddFanin(Abc_NtkPo(pAig, restPO.front()), pObjF);
+                Abc_ObjAddFanin(Abc_NtkPo(pCkt, restPO.front()), pObjF);
                 restPO.pop();
 
                 iter++;
@@ -367,17 +371,16 @@ Abc_Ntk_t* SampleCircuit::genCircuit(Abc_Ntk_t* pNtk, bool fVerbose)
     }
 
     //
-    Abc_AigCleanup( (Abc_Aig_t*)pAig->pManFunc );
+    Abc_AigCleanup( (Abc_Aig_t*)pCkt->pManFunc );
 
     // return constructed AIG
-    if ( !Abc_NtkCheck( pAig ) )
+    if ( !Abc_NtkCheck( pCkt ) )
     {
         printf( "The AIG construction has failed.\n" );
-        Abc_NtkDelete( pAig );
+        Abc_NtkDelete( pCkt );
         return NULL;
     }
-    fGen = true;
-    return Abc_NtkDup( pAig );
+    return pCkt;
 }
 
 vector<size_t> argsort(const vector<int> &v) 
@@ -393,7 +396,9 @@ vector<size_t> argsort(const vector<int> &v)
 
     return idx;
 }
-Abc_Ntk_t* SampleCircuit::genCircuit2(Abc_Ntk_t* pNtk)
+
+//deprecated
+/*Abc_Ntk_t* SampleCircuit::genCircuit2(Abc_Ntk_t* pNtk)
 {
     int i, j;
     vector<int> pivot;
@@ -499,12 +504,12 @@ Abc_Ntk_t* SampleCircuit::genCircuit2(Abc_Ntk_t* pNtk)
 
     // connect from the largest XOR constraint
     vector<size_t> arg = argsort(vSuppRef);
-    /*for (i = 0; i < arg.size(); i++)
+    for (i = 0; i < arg.size(); i++)
         cout << vSuppRef[i] << " ";
     cout << "\n";
     for (i = 0; i < arg.size(); i++)
         cout << arg[i] << " ";
-    cout << "\n";*/
+    cout << "\n";
     assert(arg.size() == XOR.size());
     for (i = 0; i < XOR.size(); i++)
     {
@@ -538,84 +543,88 @@ Abc_Ntk_t* SampleCircuit::genCircuit2(Abc_Ntk_t* pNtk)
     }
     fGen = true;
     return Abc_NtkDup( pAig );
-}
+}*/
 
-Abc_Ntk_t* SampleCircuit::connect(Abc_Ntk_t* pNtk, char* pName)
+Abc_Ntk_t* SampleCircuit::connect(Abc_Ntk_t* pCkt, Abc_Ntk_t* pNtk, char* pName)
 {
+    assert(pCkt && Abc_NtkHasAig(pCkt) && Abc_NtkIsStrash(pCkt));
     assert(pNtk && Abc_NtkHasAig(pNtk) && Abc_NtkIsStrash(pNtk));
-    assert(fGen);
+    assert(Abc_NtkPoNum(pCkt)==Abc_NtkPiNum(pNtk));
 
     int i;
-    Abc_Ntk_t * pAigNew; 
+    Abc_Ntk_t * pNtkRes, * pNtkDup; 
     Abc_Obj_t * pObj, * pPo;
     Abc_Obj_t * pChild0; 
     Abc_Obj_t * pChild1; 
     unordered_map<int, int> IDmap;
     
     // create new network
-    pAigNew = Abc_NtkAlloc( ABC_NTK_STRASH, ABC_FUNC_AIG, 1 ); 
-    pAigNew->pName = Extra_UtilStrsav( pName );
+    pNtkRes = Abc_NtkAlloc( ABC_NTK_STRASH, ABC_FUNC_AIG, 1 ); 
+    pNtkRes->pName = Extra_UtilStrsav( pName );
+    pNtkDup = Abc_NtkDup(pNtk);
 
     // map constant nodes
-    Abc_AigConst1(pAig)->pCopy = Abc_AigConst1(pAigNew);
-    Abc_AigConst1(pNtk)->pCopy = Abc_AigConst1(pAigNew);
+    Abc_AigConst1(pCkt)->pCopy = Abc_AigConst1(pNtkRes);
+    Abc_AigConst1(pNtkDup)->pCopy = Abc_AigConst1(pNtkRes);
     
     // clone PIs & POs
-    Abc_NtkForEachPi( pAig, pObj, i )
-        Abc_NtkDupObj( pAigNew, pObj, 1 );
-    Abc_NtkForEachPo( pNtk, pObj, i )
-        Abc_NtkDupObj( pAigNew, pObj, 1 );
+    Abc_NtkForEachPi( pCkt, pObj, i )
+        Abc_NtkDupObj( pNtkRes, pObj, 1 );
+    Abc_NtkForEachPo( pNtkDup, pObj, i )
+        Abc_NtkDupObj( pNtkRes, pObj, 1 );
     
     // map IDs to numbers
-    Abc_NtkForEachPi( pNtk, pObj, i )
+    Abc_NtkForEachPi( pNtkDup, pObj, i )
         IDmap[ObjId(pObj)] = i;
     
     // copy the AND gates
-    Abc_AigForEachAnd( pAig, pObj, i )
-        pObj->pCopy = Abc_AigAnd( (Abc_Aig_t *)pAigNew->pManFunc, Abc_ObjChild0Copy(pObj), Abc_ObjChild1Copy(pObj) );
-    Abc_AigForEachAnd( pNtk, pObj, i )
+    Abc_AigForEachAnd( pCkt, pObj, i )
+        pObj->pCopy = Abc_AigAnd( (Abc_Aig_t *)pNtkRes->pManFunc, Abc_ObjChild0Copy(pObj), Abc_ObjChild1Copy(pObj) );
+    Abc_AigForEachAnd( pNtkDup, pObj, i )
     {
         if (Abc_ObjIsPi(Abc_ObjFanin0(pObj)))
         {
-            pPo = Abc_NtkPo(pAig,IDmap[ObjId(Abc_ObjFanin0(pObj))]);
+            pPo = Abc_NtkPo(pCkt,IDmap[ObjId(Abc_ObjFanin0(pObj))]);
             pChild0 = Abc_ObjNotCond( Abc_ObjFanin0(pPo)->pCopy, Abc_ObjFaninC0(pPo)^Abc_ObjFaninC0(pObj) );
         }
         else
             pChild0 = Abc_ObjChild0Copy(pObj);
         if (Abc_ObjIsPi(Abc_ObjFanin1(pObj)))
         {
-            pPo = Abc_NtkPo(pAig,IDmap[ObjId(Abc_ObjFanin1(pObj))]);
+            pPo = Abc_NtkPo(pCkt,IDmap[ObjId(Abc_ObjFanin1(pObj))]);
             pChild1 = Abc_ObjNotCond( Abc_ObjFanin0(pPo)->pCopy, Abc_ObjFaninC0(pPo)^Abc_ObjFaninC1(pObj) );
         }
         else
             pChild1 = Abc_ObjChild1Copy(pObj);
-        pObj->pCopy = Abc_AigAnd( (Abc_Aig_t *)pAigNew->pManFunc, pChild0, pChild1 );
+        pObj->pCopy = Abc_AigAnd( (Abc_Aig_t *)pNtkRes->pManFunc, pChild0, pChild1 );
     }
     // relink CO
-    Abc_NtkForEachCo( pNtk, pObj, i )
+    Abc_NtkForEachCo( pNtkDup, pObj, i )
     {
         if (Abc_ObjIsPi(Abc_ObjFanin0(pObj)))
         {
-            pPo = Abc_NtkPo(pAig,IDmap[ObjId(Abc_ObjFanin0(pObj))]);
+            pPo = Abc_NtkPo(pCkt,IDmap[ObjId(Abc_ObjFanin0(pObj))]);
             pChild0 = Abc_ObjNotCond( Abc_ObjFanin0(pPo)->pCopy, Abc_ObjFaninC0(pPo)^Abc_ObjFaninC0(pObj) );
         }
         //else if (Abc_AigNodeIsConst(Abc_ObjFanin0(pObj)))
-        //    pChild0 = Abc_ObjNotCond( Abc_AigConst1(pAigNew), Abc_ObjFaninC0(pObj) );
+        //    pChild0 = Abc_ObjNotCond( Abc_AigConst1(pNtkRes), Abc_ObjFaninC0(pObj) );
         else
             pChild0 = Abc_ObjChild0Copy(pObj);
         Abc_ObjAddFanin( pObj->pCopy, pChild0 );
     }
 
-    //
-    Abc_AigCleanup( (Abc_Aig_t*)pAigNew->pManFunc );
+    // clean dummy nodes
+    Abc_AigCleanup( (Abc_Aig_t*)pNtkRes->pManFunc );
+
     // return constructed AIG
-    if ( !Abc_NtkCheck( pAigNew ) )
+    Abc_NtkDelete(pNtkDup);
+    if ( !Abc_NtkCheck( pNtkRes ) )
     {
         printf( "The AIG construction has failed.\n" );
-        Abc_NtkDelete( pAigNew );
+        Abc_NtkDelete( pNtkRes );
         return NULL;
     }
-    return pAigNew;
+    return pNtkRes;
 }
 
 void SampleCircuit::rndXORGen(int nPI, int nPO, vector< vector<bool> > &Mat, vector<int> &pivot)

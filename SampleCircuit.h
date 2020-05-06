@@ -9,6 +9,7 @@ using namespace std;
 class SampleCircuit{
 
 public:
+    ~SampleCircuit();
     SampleCircuit();
     SampleCircuit(int nPI, int nPO);
 
@@ -16,12 +17,11 @@ public:
     void setRndSeed(unsigned seed) {srand(seed);}
     Abc_Ntk_t* genCircuit(bool fVerbose=false);
     Abc_Ntk_t* genCircuit(Abc_Ntk_t* pNtk, bool fVerbose=false);
-    Abc_Ntk_t* genCircuit2(Abc_Ntk_t* pNtk); //deprecated
-    Abc_Ntk_t* connect(Abc_Ntk_t* pNtk, char* pName="sampled");
+    //Abc_Ntk_t* genCircuit2(Abc_Ntk_t* pNtk); //deprecated
+    Abc_Ntk_t* connect(Abc_Ntk_t* pCkt, Abc_Ntk_t* pNtk, char* pName="sampled");
 
     friend ostream& operator<<(ostream& out, const SampleCircuit& obj);
     vector< vector<int> > getXOR() {return XOR;}
-    Abc_Ntk_t* getCircuit() {return pAig;}
 
 private:
     bool fInit;
@@ -30,7 +30,6 @@ private:
     int nPO;
     unsigned seed;
     vector< vector<int> > XOR;
-    Abc_Ntk_t* pAig;
 
     void rndXORGen(int nPI, int nPO, vector< vector<bool> > &Mat, vector<int> &pivot);
     bool checkAvailable(int nPI, int nPO, vector< vector<bool> > &Mat);

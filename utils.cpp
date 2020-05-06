@@ -5,8 +5,6 @@
 #include <ctime>
 #include <algorithm>
 
-#include "base/main/main.h"
-#include "base/main/mainInt.h"
 
 #include "ext-sample/SampleCircuit.h"
 
@@ -79,12 +77,12 @@ vector<int*> Ntk_Minterm(Abc_Ntk_t * pNtk, int num)
     int nPI, nMinterm;
     int count;
     Abc_Obj_t * pObj;
+    DdManager * dd;
     DdNode * df;
     DdNode ** nodes;
-	DdManager * dd;
     vector<int*> vMinterm;
 
-    assert(pNtk != NULL && Abc_NtkIsComb(pNtk));
+    //assert(pNtk != NULL && Abc_NtkIsComb(pNtk));
     assert(Abc_NtkPoNum(pNtk)==1);
     if (!Abc_NtkIsStrash(pNtk))
         pNtk = Abc_NtkStrash(pNtk, 0, 1, 0);
@@ -117,18 +115,16 @@ vector<int*> Ntk_Minterm(Abc_Ntk_t * pNtk, int num)
 		count++;
     }
 
-    Abc_NtkFreeGlobalBdds( pNtk, 1 );
-
+    delete [] nodes;
     return vMinterm;
 }
 
-Abc_Ntk_t * genSample(Abc_Ntk_t * pNtk, int hashBits, int loThresh, int hiThresh, vector<int*> &vSample)
+/*void genSample(Abc_Ntk_t * pNtk, int hashBits, int loThresh, int hiThresh, Abc_Ntk_t * &pCkt, std::vector<int*> &vSample)
 {
     SampleCircuit sc;
 	vector<int> V{hashBits, hashBits-1, hashBits-2};
 	vector<int*> vMinterm;
-    Abc_Ntk_t * pCkt;
-    static Abc_Ntk_t * pNtkRes;
+    Abc_Ntk_t * pNtkRes;
     int nPI = Abc_NtkPiNum(pNtk);
 
     random_shuffle(V.begin(), V.end());
@@ -148,14 +144,14 @@ Abc_Ntk_t * genSample(Abc_Ntk_t * pNtk, int hashBits, int loThresh, int hiThresh
 			    vSample.push_back(sample);
             }
             Abc_NtkDelete(pNtkRes);
-			return pCkt;
+            return;
 		}
 		Abc_NtkDelete(pCkt);
 		Abc_NtkDelete(pNtkRes);
 	}
-
-    return NULL;
-}
+    
+    return;
+}*/
 
 void split(vector<string> &vs, string str, char delim)
 {

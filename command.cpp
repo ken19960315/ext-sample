@@ -7,13 +7,16 @@
 #include <fstream>
 #include <cmath>
 #include <ctime>
+#include <map>
 #include <unordered_map>
 #include <bitset>
 #include <algorithm>
+#include <thread>
 
 #include "ext-sample/SampleCircuit.h"
 #include "ext-sample/chisqr.h"
 #include "ext-sample/utils.h"
+
 
 extern "C" void Abc_NtkPrintStrSupports( Abc_Ntk_t * pNtk, int fMatrix );
 
@@ -485,7 +488,7 @@ int SampleCnt_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
         pAig = sc.genCircuit(pNtk);
     else
         pAig = sc.genCircuit();
-    pAigNew = sc.connect(pNtk);
+    pAigNew = sc.connect(pAig, pNtk);
     if (fVerbose)
     {
         Abc_Print( 2, "Generate sample circuit w/ nPI = %d, nPO = %d\n", nPI, nPO );
@@ -518,26 +521,36 @@ usage:
 int SampleWit_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
 {
     char c;
-    int nPI, nSample = 0, nGen = 0, nCircuit = 0, nSize;
-	int hashBits = 0, loThresh, hiThresh;
-	double kappa = 0.638;
-    double pivot;
+    int nSample;
+    int nPI, nPO, nGen = 0, nAttempt = 0, nCircuit = 0, nSize;
 	bool fVerbose = false, fRedirect = false;
    	char * filename;
    	char circuitname[10];
 	fstream file;
     Abc_Ntk_t * pNtk, * pCkt, * pNtkRes;
-	vector<int*> vMinterm;
-	vector<int*> vSample;
+	int * pIn1, * pIn2, * pOut;
+    vector<int*> vMinterm;
 	vector<int*> vResult;
     SampleCircuit sc;
+    clock_t t1, t2;
 
     // parse arguments
     Extra_UtilGetoptReset();
-    while ( ( c = Extra_UtilGetopt( argc, argv, "srvh" ) ) != EOF )
+    while ( ( c = Extra_UtilGetopt( argc, argv, "isrvh" ) ) != EOF )
     {
         switch ( c )
         {
+        case 'i':
+            if ( globalUtilOptind >= argc )
+            {
+                Abc_Print( -1, "Command line switch \"-i\" should be followed by an integer.\n" );
+                goto usage;
+            }
+            nPI = atoi(argv[globalUtilOptind]);
+            globalUtilOptind++;
+            if ( nPI <= 0 )
+                goto usage;
+            break;
         case 's':
             if ( globalUtilOptind >= argc )
             {
@@ -573,52 +586,54 @@ int SampleWit_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
     assert(pNtk != NULL && Abc_NtkIsComb(pNtk));
     if (!Abc_NtkIsStrash(pNtk))
         pNtk = Abc_NtkStrash(pNtk, 0, 1, 0);
-    nPI = Abc_NtkPiNum(pNtk);
+    nPO = Abc_NtkPiNum(pNtk);
 	
-	// estimate parameters
-	pivot = ceil(4.03 * (1 + 1/kappa) * (1 + 1/kappa));
-	hiThresh = (int)ceil(1 + sqrt(2)*(1+kappa)*pivot);	
-	loThresh = (int)floor(pivot / (sqrt(2)*(1+kappa)));	
-    for (int i = nPI-1; i > 0; i--)
-	{
-		sc.setIOnum(i, nPI);
-        pCkt = sc.genCircuit();
-		pNtkRes = sc.connect(pNtk);
-    	vMinterm = Ntk_Minterm(pNtkRes, 61);
-		Abc_NtkDelete(pCkt);
-		Abc_NtkDelete(pNtkRes);
-		nSize = vMinterm.size();
-		if (nSize >= 1 && nSize <= 60)
-		{
-			hashBits = (int)round(log2(nSize)+(nPI-i)+log2(1.8)-log2(pivot));
-			break;
-		}
-	}
-	if (hashBits <= 2)
-	{
-		Abc_Print( 2, "Too few solutions\n");
-		return 0;
-	}
-
-	if (fVerbose)
-	{
-		Abc_Print( 2, "hashBits: %d\n", hashBits );
-		Abc_Print( 2, "loThresh: %d, hiThresh: %d\n", loThresh, hiThresh );
-	}
 	// generate samples
+    t1 = clock();
+	sc.setIOnum(nPI, nPO);
+    pIn1 = new int[nPI];
 	while (nGen < nSample)
 	{
-		if ( (pNtkRes=genSample(pNtk, hashBits, loThresh, hiThresh, vSample)) != NULL )
-		{		
-			assert(vSample.size() == loThresh);
-			for (int i = 0; i < vSample.size() && nGen < nSample; i++, nGen++)
-				vResult.push_back(vSample[i]);
-            // dump the circuit
-            sprintf(circuitname, "wit%d.aig", nCircuit);
-            Io_WriteAiger( pNtkRes, circuitname, 0, 0, 0 ); //io name,compact,conanical
-		    nCircuit++;
+        // symbolic sampling
+        pCkt = sc.genCircuit();
+        pNtkRes = sc.connect(pCkt, pNtk);        
+
+        // count minterm
+        for (int i = 0; i < pow(2,nPI); i++)
+        {
+            for (int j = 0; j < nPI; j++)
+                pIn1[j] = (i & (1 << j)) ? 1 : 0;
+            pOut = Abc_NtkVerifySimulatePattern(pNtkRes, pIn1);
+            if (pOut[0] == 1)
+            {
+                pIn2 = Abc_NtkVerifySimulatePattern(pCkt, pIn1);
+                vMinterm.push_back(pIn2);
+            }
+            delete pOut;
         }
+       
+        // draw sample 
+	    nSize = vMinterm.size();
+	    if (nSize > 0)
+	    {
+            random_shuffle(vMinterm.begin(), vMinterm.end());
+	    	vResult.push_back(vMinterm[0]);
+            vMinterm.clear();
+            nGen++;
+            /*// dump the circuit
+            sprintf(circuitname, "wit%d.aig", nCircuit);
+            assert(vNtk[t] != NULL);
+            Io_WriteAiger( pCkt, circuitname, 0, 0, 0 ); //io name,compact,conanical
+		    nCircuit++;*/
+	    }
+	    Abc_NtkDelete(pCkt);
+	    Abc_NtkDelete(pNtkRes);
+        nAttempt++;
 	}
+    delete pIn1;
+    t2 = clock();
+    if (fVerbose)
+        Abc_Print( 2, "Generate %d samples with p=%f%% in %f secs.\n", nSample, ((float)nSample/nAttempt)*100, (double)(t2-t1)/CLOCKS_PER_SEC );
 
 	// dump the result
 	assert(vResult.size() == nSample);
@@ -626,9 +641,10 @@ int SampleWit_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
 	{
         file.open(filename, ios::out|ios::trunc);
         assert(file.is_open());
+        file << (float)nSample/nAttempt << "\n";
 		for (int i = 0; i < nSample; i++)
 		{
-			for (int j = 0; j < nPI; j++)
+			for (int j = 0; j < nPO; j++)
 			{
 				if (vResult[i][j] == 0)
 					file << "-";
@@ -636,12 +652,13 @@ int SampleWit_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
 			}
 			file << "\n";
 		}
+        file.close();
 	}
 	/*else
 	{
 		for (int i = 0; i < nSample; i++)
 		{
-			for (int j = 0; j < nPI; j++)
+			for (int j = 0; j < nPO; j++)
 			{
 				if (vResult[i][j] == 0)
 					cout << "-";
@@ -651,11 +668,13 @@ int SampleWit_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
 		}
 	}*/
 
+    vResult.clear();
 	return 0;
 
 usage:
     Abc_Print( -2, "usage: sampleWit [-s <num>] [-vh]\n" );
     Abc_Print( -2, "\t        Generate witnesses of the current network and dump the sampling circuits named by \"wit<num>.aig\"\n" );
+    Abc_Print( -2, "\t-i <num>  : set the number of PI\n");
     Abc_Print( -2, "\t-s <num>  : set the number of samples\n");
     Abc_Print( -2, "\t-r <file> : redirect the result to the given file\n");
     Abc_Print( -2, "\t-v        : verbose\n");
@@ -668,20 +687,22 @@ int SampleChiTest_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
 {
     char c;
     int i, j, pos;
-    int nPI = 0;
-    int nPO = 0;
-    int times = 0;
+    int nPI = 0, nPO = 0;
+    int nGen = 0, nSample = 0;
+    double nExpect;
     bool fCorrelation = false;
     bool fRedirect = false;
     bool fVerbose = false;
+    int * pInput;
+    string strPattern;
     fstream file;
     char* filename;
     Abc_Obj_t * pPi;
-    Abc_Ntk_t * pNtk;
+    Abc_Ntk_t * pNtk, * pSampleCkt;
     SampleCircuit sc;
     unordered_map<string, int> PImap;
-    int expect = 5;
-    vector<short> vObserve;
+    map<string, unsigned char> mObserve;
+    map<string, unsigned char>::iterator mIter;
     double valCrit, valP;
 
     // parse arguments
@@ -718,9 +739,9 @@ int SampleChiTest_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
                 Abc_Print( -1, "Command line switch \"-e\" should be followed by an integer.\n" );
                 goto usage;
             }
-            expect = atoi(argv[globalUtilOptind]);
+            nSample = atoi(argv[globalUtilOptind]);
             globalUtilOptind++;
-            if ( expect <= 0 )
+            if ( nSample <= 0 )
                 goto usage;
             break;
         case 'r':
@@ -749,17 +770,7 @@ int SampleChiTest_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
     if (fCorrelation)
     {
         pNtk = Abc_FrameReadNtk(pAbc);
-        if (pNtk == NULL)
-        {
-            Abc_Print( -1, "Cannot get the current network.\n");
-            return 0;
-        }
-        // check whether the network is combinational
-        if (!Abc_NtkIsComb(pNtk))
-        {
-            Abc_Print( -1, "Network is not combinational.\n" );
-            return 0;
-        }
+        assert(pNtk != NULL && Abc_NtkIsComb(pNtk));
         assert(Abc_NtkHasAig(pNtk) && Abc_NtkIsStrash(pNtk));
         nPO = Abc_NtkPiNum(pNtk);
     
@@ -775,74 +786,54 @@ int SampleChiTest_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
     }
 
     // check if the number of PO/PI is available
-    if (nPO == 1)
-    {
-        Abc_Print( -1, "Circuit has only one PI.\n");
-        return 0;
-    }
-    if (nPI <= 0)
-    {
-        Abc_Print( -1, "The number of PI should be larger than 0.\n" );
-        return 0;
-    }
-    if (nPI >= nPO)
-    {
-        Abc_Print( -1, "The number of PI should be less than the number of PO.\n" );
-        return 0;
-    }
-    if (nPO > 20)
-    {
-        Abc_Print( -1, "The number of PO should be less than 20 due to memory concern.\n" );
-        return 0;
-    }
+    assert(nPI > 1 && nPI < nPO);    
 
-    // generate sampling circuit
-    times = expect*pow(2,nPO) / pow(2,nPI);
+    // set to default value
+    if (nSample == 0)
+        nSample = (int)pow(2,nPO);
     if (fVerbose)
-        Abc_Print( -2, "\nGenerate sample circuit w/ nPI = %d, nPO = %d, and %d times.\n", nPI, nPO, times );
-    sc.setRndSeed((unsigned)time(NULL));
-    vObserve.resize(pow(2,nPO));
-    for (i = 0; i < pow(2,nPO); i++)
-        vObserve[i] = 0;
-    for (i = 0; i < times; i++)
+        Abc_Print( -2, "\nConduct Pearson's chi-squared test w/ nPI = %d, nPO = %d, and nSample = %d.\n", nPI, nPO, nSample );
+    pInput = new int[nPI];
+    while (nGen < nSample)
     {
         if (fVerbose)
-            Abc_Print( -2, "\nSampling...(%d/%d)\n", i+1, times );
-            
+            Abc_Print( -2, "\nSampling...(%d/%d)\n", nGen, nSample );
+        
+        // generate sampling circuit
         sc.setIOnum(nPI, nPO);
-        sc.genCircuit();
-        if (fVerbose)
-            cout << sc;
-
+        if (fCorrelation)
+            pSampleCkt = sc.genCircuit(pNtk);
+        else
+            pSampleCkt = sc.genCircuit();
+        
         // count patterns
-        vector< vector<int> > XOR = sc.getXOR();
-        for (j = 0; j < pow(2,nPI); j++)
+        strPattern.clear();
+        for (i = 0; i < pow(2,nPI); i++)
         {
-            string in = bitset<20>(j).to_string();
-            string out(nPO, '-');
-            for (int m = 0; m < nPO; m++)
-            {
-                int output = XOR[m][0];
-                for (int n = 1; n < XOR[m].size(); n++)
-                {
-                    if (in[in.size()-XOR[m][n]-1] == '1')
-                        output ^= 1;
-                }
-                pos = fCorrelation? PImap[Abc_ObjName(Abc_NtkPi(pNtk, m))] : m;
-                out[pos] = (char)(output+48);
-            }
-            vObserve[bitset<20>(out).to_ulong()]++;
+            for (j = 0; j < nPI; j++)
+                pInput[j] = (i & (1 << j)) ? 1 : 0;
+            int * pValues = Abc_NtkVerifySimulatePattern(pSampleCkt, pInput);
+            for (j = 0; j < nPO; j++)
+                strPattern.push_back((char)(pValues[j]+48));
+            if ((mIter = mObserve.find(strPattern)) != mObserve.end())
+                mIter->second++;
+            else
+                mObserve[strPattern] = 1;
         }
+
+        nGen += pow(2,nPI);
     }
 
     // compute chi-square value
     valCrit = 0;
-    for (i = 0; i < pow(2,nPO); i++)
+    nExpect = nSample/pow(2,nPO);
+    for (mIter = mObserve.begin(); mIter != mObserve.end(); mIter++)
     {
-        double XSqr = vObserve[i] - expect;
-        valCrit += ((XSqr * XSqr) / expect);
+        double XSqr = mIter->second - nExpect;
+        valCrit += ((XSqr * XSqr) / nExpect);
     }
-    
+    valCrit += nExpect*(pow(2,nPO)-mObserve.size());    
+
     // compute p-value
     valP = chisqr(pow(2,nPO)-1, valCrit);
 
@@ -866,13 +857,13 @@ int SampleChiTest_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
     return 0;
 
 usage:
-    Abc_Print( -2, "usage: sampleChiTest [-i <num>] [-o <num>] [-r <file>] [-cvh]\n" );
+    Abc_Print( -2, "usage: sampleChiTest [-i <num>] [-e <num>] [-o <num>/-c] [-r <file>] [-vh]\n" );
     Abc_Print( -2, "\t        Apply Pearson Chi-Square test on sampling circuit\n" );
     Abc_Print( -2, "\t-i <num>  : set the number of PI\n");
     Abc_Print( -2, "\t-o <num>  : set the number of PO\n");
-    Abc_Print( -2, "\t-e <num>  : set the expected number of each pattern[default:5]\n");
+    Abc_Print( -2, "\t-e <num>  : set the number of samples\n");
     Abc_Print( -2, "\t-r <file> : redirect the result to the given file\n");
-    Abc_Print( -2, "\t-c        : consider network supports correlation\n");
+    Abc_Print( -2, "\t-c       : consider supports information of the current network\n");
     Abc_Print( -2, "\t-v        : verbose\n");
     Abc_Print( -2, "\t-h        : print the command usage\n");
     return 0;
@@ -1009,7 +1000,7 @@ int SampleStuckTest_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
     }*/
     /*sc.setIOnum(nPI, nPO);
     pAig = sc.genCircuit(pNtk);
-    pAigNew = sc.connect(pNtk);
+    pAigNew = sc.connect(pCkt, pNtk);
     if (fVerbose)
     {
         Abc_Print( 2, "Generate sample circuit w/ nPI = %d, nPO = %d\n", nPI, nPO );
