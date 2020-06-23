@@ -64,9 +64,9 @@ Abc_Ntk_t * Ntk_StuckGen(Abc_Ntk_t * pNtk)
     // stuck to 0 or 1
     srand((unsigned)time(NULL));
     if (rand()%2 == 0)
-        Abc_AigReplace( (Abc_Aig_t*)pNtkRes->pManFunc, vAnd[picked], pAigZero, 0 );
+        Abc_AigReplace( (Abc_Aig_t*)pNtkRes->pManFunc, vAnd[picked], pAigZero, 1 );
     else
-        Abc_AigReplace( (Abc_Aig_t*)pNtkRes->pManFunc, vAnd[picked], pAigOne, 0 );
+        Abc_AigReplace( (Abc_Aig_t*)pNtkRes->pManFunc, vAnd[picked], pAigOne, 1 );
 
     return pNtkRes;
 }

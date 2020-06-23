@@ -9,9 +9,10 @@
 #include <ctime>
 #include <map>
 #include <unordered_map>
+#include <set>
 #include <bitset>
 #include <algorithm>
-#include <thread>
+#include <numeric>
 
 #include "ext-sample/SampleCircuit.h"
 #include "ext-sample/chisqr.h"
@@ -874,19 +875,24 @@ int SampleStuckTest_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
 {
     char c;
     int nPI = 10, nPO;
-    int nSample = 1024, nTest = 1;
+    int nGen, nSample = 1024, nTest = 1;
     int RetValue;
-    int * pModel;
+    int nFixed, nCount1, nCount2, nDup1, nDup2;
+    int * pValues, * pModel, * pIn, * pIn2;
     bool fDump = false;
     bool fRedirect = false;
     bool fVerbose = false;
     char * filename;
     Abc_Ntk_t * pNtk, * pNtkRes;
     Abc_Ntk_t * pMiter;
-    Abc_Ntk_t * pAig, * pAigNew; 
+    Abc_Ntk_t * pCkt, * pCnt; 
     Prove_Params_t Params, * pParams = &Params;
     SampleCircuit sc;
-    vector<int> vFixed;
+    set<string> setPattern;
+    vector<int> vFixed, vNFixed;
+    vector<int> vCount1, vCount2;
+    vector<int> vDup1, vDup2;
+    clock_t t1, t2;
 
     // parse arguments
     Extra_UtilGetoptReset();
@@ -960,12 +966,15 @@ int SampleStuckTest_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
     assert(nPI > 0 && nPO > 0);
     assert(nPI < nPO);
 
-    pNtkRes = Ntk_StuckGen(pNtk);
-    // replace the current network
-    Abc_FrameReplaceCurrentNetwork(pAbc, pNtkRes);
-    
-    /*for (int i = 0; i < nTest; i++)
+    // conduct experiment
+    pIn = new int[nPI];
+    pIn2 = new int[nPO];
+    t1 = clock();
+    for (int i = 0; i < nTest; i++)
     {
+        if (fVerbose)
+            Abc_Print( 2, "Test...(%d/%d)\n", i+1, nTest );
+
         // generate single stuck-at fault
         pNtkRes = Ntk_StuckGen(pNtk);
 
@@ -981,31 +990,135 @@ int SampleStuckTest_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
         pModel = pMiter->pModel;
         assert(pModel);
 
-        // determine variables that make miter remained 0 after flipped
+        // determine variables that make miter alter after flipped
+        vFixed.clear();
         for (int j = 0; j < nPO; j++)
         {
             pModel[j] ^= 1;
-            int * pValues = Abc_NtkVerifySimulatePattern( pMiter, pModel );
-            if (pValues[0] == 1)
+            pValues = Abc_NtkVerifySimulatePattern( pMiter, pModel );
+            if (pValues[0] == 0)
                 vFixed.push_back(j);
             pModel[j] ^= 1;
+            delete [] pValues;
         }
 
-        // generate sample circuit & connect
+        // original sim
+        nGen = 0;
+        nCount1 = 0;
+        nDup1 = 0;
+        setPattern.clear();
+        while (nGen < nSample)
+        {
+            sc.setIOnum(nPI, nPO);
+            pCkt = sc.genCircuit(pNtk);
+            pCnt = sc.connect(pCkt, pMiter);
+            for (int j = 0; j < pow(2,nPI); j++)
+            {
+                // generate pattern
+                for (int k = 0; k < nPI; k++)
+                    pIn[k] = (j & (1 << k)) ? 1 : 0;
+                
+                // sim
+                pValues = Abc_NtkVerifySimulatePattern(pCnt, pIn);
+                
+                // count satisfying patterns
+                if (pValues[0] == 1)
+                    nCount1++;
+
+                // count duplicated patterns
+                delete [] pValues;
+                pValues = Abc_NtkVerifySimulatePattern(pCkt, pIn);
+                string s;
+                for (int k = 0; k < nPO; k++)
+                    s.push_back((char)(pValues[k]+48));
+                if (setPattern.count(s))
+                    nDup1++;
+                else
+                    setPattern.insert(s);
+
+                delete [] pValues; 
+            }
+
+            nGen += (int)pow(2,nPI);
+        }
         
-        // simulate
+        // biased sim
+        random_shuffle(vFixed.begin(), vFixed.end());
+        nFixed = min((int)vFixed.size(), (int)(nPO/10));
+        nGen = 0;
+        nCount2 = 0;
+        nDup2 = 0;
+        setPattern.clear();
+        while (nGen < nSample)
+        {
+            sc.setIOnum(nPI, nPO-nFixed);
+            pCkt = sc.genCircuit();
+            for (int j = 0; j < pow(2,nPI); j++)
+            {
+                // generate pattern
+                for (int k = 0; k < nPI; k++)
+                    pIn[k] = (j & (1 << k)) ? 1 : 0;
+                pValues = Abc_NtkVerifySimulatePattern(pCkt, pIn);
+                for (int k = 0; k < nPO; k++)
+                    pIn2[k] = pModel[k];
+                int m = 0, n = 0;
+                for (int k = 0; k < nPO; k++)
+                {
+                    if (k == vFixed[m])
+                        m++; 
+                    else
+                        pIn2[k] = pValues[n++];
+                }
+                
+                // sim
+                delete [] pValues;
+                pValues = Abc_NtkVerifySimulatePattern(pMiter, pIn2);
+
+                // count satisfying patterns
+                if (pValues[0] == 1)
+                    nCount2++;
+   
+                // count duplicated patterns
+                string s;
+                for (int k = 0; k < nPO; k++)
+                    s.push_back((char)(pIn2[k]+48));
+                if (setPattern.count(s))
+                    nDup2++;
+                else
+                    setPattern.insert(s);
+                
+                delete [] pValues; 
+            }
+
+            nGen += (int)pow(2,nPI);
+        }
+
+        // save result
+        vNFixed.push_back(nFixed);
+        vCount1.push_back(nCount1);
+        vCount2.push_back(nCount2);
+        vDup1.push_back(nDup1);
+        vDup2.push_back(nDup2);
 
         ABC_FREE( pMiter->pModel );
         Abc_NtkDelete( pMiter );
-    }*/
-    /*sc.setIOnum(nPI, nPO);
-    pAig = sc.genCircuit(pNtk);
-    pAigNew = sc.connect(pCkt, pNtk);
+        Abc_NtkDelete( pNtkRes );
+    }
+    t2 = clock();
     if (fVerbose)
     {
-        Abc_Print( 2, "Generate sample circuit w/ nPI = %d, nPO = %d\n", nPI, nPO );
-        cout << sc;
-    }*/
+        Abc_Print( 2, "# of tests: %d\n", nTest);
+        Abc_Print( 2, "# of samples per test: %d\n", nSample);
+        Abc_Print( 2, "Avg. time in secs: %.1f\n", ((double)(t2-t1)/CLOCKS_PER_SEC)/nTest);
+        Abc_Print( 2, "Avg.%% Hit in origin: %.1f\n", 100*accumulate(vCount1.begin(), vCount1.end(), 0.0)/nTest/nSample);
+        Abc_Print( 2, "Avg.%% Dup in origin: %f\n", 100*accumulate(vDup1.begin(), vDup1.end(), 0.0)/nTest/nSample);
+        Abc_Print( 2, "Avg. Fixed variables: %.1f\n", accumulate(vNFixed.begin(), vNFixed.end(), 0.0)/nTest);
+        Abc_Print( 2, "Avg.%% Hit in biased: %.1f\n", 100*accumulate(vCount2.begin(), vCount2.end(), 0.0)/nTest/nSample);
+        Abc_Print( 2, "Avg.%% Dup in biased: %f\n", 100*accumulate(vDup2.begin(), vDup2.end(), 0.0)/nTest/nSample);
+    }
+
+    delete [] pIn;
+    delete [] pIn2;
 
     return 0;
 
