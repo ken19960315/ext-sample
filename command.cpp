@@ -110,126 +110,13 @@ usage:
     return 0;
 }
 
-// ABC command: print/write network infomation
-int ReadCNF_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
-{
-	char c;
-	char * filename;
-	char * pCircuitName = "transformedCNF";
-	string line;
-	int nVar, var;
-	bool fVarInit = false;
-	fstream fin;
-	vector<string> vSplit;
-	Abc_Ntk_t * pAig;
-	Abc_Obj_t * pAigOne, * pAigZero;
-	Abc_Obj_t * pObjA, * pObjClause, * pObjF;
-
-	// parse arguments
-    Extra_UtilGetoptReset();
-    while ( ( c = Extra_UtilGetopt( argc, argv, "ih" ) ) != EOF )
-    {
-        switch ( c )
-        {
-        case 'i':
-            if ( globalUtilOptind >= argc )
-            {
-                Abc_Print( -1, "Command line switch \"-i\" should be followed by an string.\n" );
-                goto usage;
-            }
-            filename = argv[globalUtilOptind];
-            assert(filename != NULL);
-            globalUtilOptind++;
-            break;
-        case 'h':
-            goto usage;
-        default:
-            goto usage;
-        }
-    }
-
-	// initialize AIG
-    pAig = Abc_NtkAlloc( ABC_NTK_STRASH, ABC_FUNC_AIG, 1 ); 
-    pAig->pName = Extra_UtilStrsav( pCircuitName );
-
-    // const node
-    pAigOne  = Abc_AigConst1(pAig);
-    pAigZero = Abc_ObjNot(pAigOne);
-	pObjF = pAigOne;
-	
-	// parse CNF & construct AIG
-    fin.open(filename, ios::in);
-    assert(fin.is_open());
-	while (getline(fin, line))
-	{
-		if (line[0] == 'c')
-			continue;
-		else if (line[0] == 'p')
-		{
-			assert(!fVarInit);
-			split(vSplit, line);
-			nVar = stoi(vSplit[2]); 
-    		// create PI/PO 
-    		for ( int i = 0; i < nVar; i++ )
-    		    pObjA = Abc_NtkCreatePi( pAig );
-    		pObjA = Abc_NtkCreatePo( pAig );
-			fVarInit = true;
-		}
-		else
-		{
-			assert(fVarInit);
-			split(vSplit, line);
-			if (vSplit.size() == 0) break;
-			pObjClause = pAigZero;
-			for (int i = 0; i < vSplit.size()-1; i++)
-			{
-				var = stoi(vSplit[i]);
-				pObjA = Abc_NtkPi(pAig, abs(var)-1);
-				if (var < 0)
-					pObjA = Abc_ObjNot(pObjA);
-				pObjClause = Abc_AigOr( (Abc_Aig_t*)pAig->pManFunc, pObjClause, pObjA );
-			}
-			pObjF = Abc_AigAnd( (Abc_Aig_t*)pAig->pManFunc, pObjF, pObjClause );
-		}
-	}
-
-	// connect to PO
-	Abc_ObjAddFanin(Abc_NtkPo(pAig, 0), pObjF);
-
-	// remove dangling nodes
-    Abc_AigCleanup( (Abc_Aig_t*)pAig->pManFunc );
-    
-	// add names
-	Abc_NtkAddDummyPiNames( pAig );
-	Abc_NtkAddDummyPoNames( pAig );
-
-	// check network
-    if ( !Abc_NtkCheck( pAig ) )
-    {
-        printf( "The AIG construction has failed.\n" );
-        Abc_NtkDelete( pAig );
-        return 0;
-    }
-	
-    // replace the current network
-    Abc_FrameReplaceCurrentNetwork(pAbc, pAig);
-
-    return 0;
-
-usage:
-    Abc_Print( -2, "usage: read_cnf [-i <cnf>] [-h]\n" );
-    Abc_Print( -2, "\t        Read DIMACS CNF file and construct corresponding AIG network\n" );
-    Abc_Print( -2, "\t-i <cnf> : CNF file input\n");
-    Abc_Print( -2, "\t-h       : print the command usage\n");
-    return 0;
-}
-
 // ABC command: Generate a sampling circuit 
 int SampleCkt_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
 {
     char c;
     int nPI = 0;
     int nPO = 0;
+    int nType = 0;
     bool fCorrelation = false;
     bool fVerbose = false;
     Abc_Ntk_t * pNtk, * pAig;
@@ -237,7 +124,7 @@ int SampleCkt_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
 
     // parse arguments
     Extra_UtilGetoptReset();
-    while ( ( c = Extra_UtilGetopt( argc, argv, "iocvh" ) ) != EOF )
+    while ( ( c = Extra_UtilGetopt( argc, argv, "iotcvh" ) ) != EOF )
     {
         switch ( c )
         {
@@ -261,6 +148,17 @@ int SampleCkt_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
             nPO = atoi(argv[globalUtilOptind]);
             globalUtilOptind++;
             if ( nPO <= 0 )
+                goto usage;
+            break;
+        case 't':
+            if ( globalUtilOptind >= argc )
+            {
+                Abc_Print( -1, "Command line switch \"-t\" should be followed by an integer.\n" );
+                goto usage;
+            }
+            nType = atoi(argv[globalUtilOptind]);
+            globalUtilOptind++;
+            if ( nType < 0 || nType > 2 )
                 goto usage;
             break;
         case 'c':
@@ -289,17 +187,27 @@ int SampleCkt_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
     assert(nPI < nPO);
 
     // generate sampling circuit
-    sc.setIOnum(nPI, nPO);
-    if (fCorrelation)
-        pAig = sc.genCircuit(pNtk);
-    else
-        pAig = sc.genCircuit();
     if (fVerbose)
-    {
         Abc_Print( 2, "Generate sampling circuit w/ nPI = %d, nPO = %d\n", nPI, nPO );
-        cout << sc;
+    sc.setIOnum(nPI, nPO);
+    switch(nType)
+    {
+    case 0:
+        if (fCorrelation)
+            pAig = sc.genCircuit(pNtk, fVerbose);
+        else
+            pAig = sc.genCircuit(fVerbose);
+        break;
+    case 1:
+        pAig = sc.genRand(fVerbose);
+        break;
+    case 2:
+        pAig = sc.genRandCof(fVerbose);
+        break;
+    default:
+        break;
     }
-
+    
     // replace the current network
     Abc_FrameReplaceCurrentNetwork(pAbc, pAig);
 
@@ -310,6 +218,7 @@ usage:
     Abc_Print( -2, "\t        Generate a sampling circuit with given PI and PO number\n" );
     Abc_Print( -2, "\t-i <num>  : set the number of PI\n");
     Abc_Print( -2, "\t-o <num>  : set the number of PO\n");
+    Abc_Print( -2, "\t-t <num>  : set the sampling type(0:xGen, 1:rand, 2:randCof)[default:0]\n");
     Abc_Print( -2, "\t-c        : consider supports information of the current network\n");
     Abc_Print( -2, "\t-v        : verbose\n");
     Abc_Print( -2, "\t-h        : print the command usage\n");
@@ -431,6 +340,7 @@ int SampleCnt_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
     char c;
     int nPI = 0;
     int nPO;
+    int nType = 0;
     bool fVerbose = false;
     bool fCorrelation = false;
     Abc_Ntk_t * pNtk;
@@ -439,7 +349,7 @@ int SampleCnt_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
 
     // parse arguments
     Extra_UtilGetoptReset();
-    while ( ( c = Extra_UtilGetopt( argc, argv, "icvh" ) ) != EOF )
+    while ( ( c = Extra_UtilGetopt( argc, argv, "itcvh" ) ) != EOF )
     {
         switch ( c )
         {
@@ -452,6 +362,17 @@ int SampleCnt_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
             nPI = atoi(argv[globalUtilOptind]);
             globalUtilOptind++;
             if ( nPI <= 0 )
+                goto usage;
+            break;
+        case 't':
+            if ( globalUtilOptind >= argc )
+            {
+                Abc_Print( -1, "Command line switch \"-t\" should be followed by an integer.\n" );
+                goto usage;
+            }
+            nType = atoi(argv[globalUtilOptind]);
+            globalUtilOptind++;
+            if ( nType < 0 || nType > 2 )
                 goto usage;
             break;
         case 'c':
@@ -484,24 +405,27 @@ int SampleCnt_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
     assert(nPI < nPO);
 
     // generate sample circuit & connect
-    sc.setIOnum(nPI, nPO);
-    if (fCorrelation)
-        pAig = sc.genCircuit(pNtk);
-    else
-        pAig = sc.genCircuit();
-    pAigNew = sc.connect(pAig, pNtk);
     if (fVerbose)
-    {
         Abc_Print( 2, "Generate sample circuit w/ nPI = %d, nPO = %d\n", nPI, nPO );
-        cout << sc;
-        /*Abc_Print( 2, "Sampling Circuit:\n" );
-        Abc_NtkPrintStrSupports( pAig, 0 );
-        Abc_Print( 2, "Connect to current network\n");
-        Abc_Print( 2, "Original Network:\n" );
-        Abc_NtkPrintStrSupports( pNtk, 0 );
-        Abc_Print( 2, "Sampling Network:\n" );
-        Abc_NtkPrintStrSupports( pAigNew, 0 );*/
+    sc.setIOnum(nPI, nPO);
+    switch(nType)
+    {
+    case 0:
+        if (fCorrelation)
+            pAig = sc.genCircuit(pNtk, fVerbose);
+        else
+            pAig = sc.genCircuit(fVerbose);
+        break;
+    case 1:
+        pAig = sc.genRand(fVerbose);
+        break;
+    case 2:
+        pAig = sc.genRandCof(fVerbose);
+        break;
+    default:
+        break;
     }
+    pAigNew = sc.connect(pAig, pNtk);
 
     // replace the current network
     Abc_FrameReplaceCurrentNetwork(pAbc, pAigNew);
@@ -512,174 +436,10 @@ usage:
     Abc_Print( -2, "usage: sampleCnt [-i <num>] [-cvh]\n" );
     Abc_Print( -2, "\t        Generate a sampling circuit with given PI number and connect it to the current network\n" );
     Abc_Print( -2, "\t-i <num> : set the number of PI\n");
+    Abc_Print( -2, "\t-t <num> : set the sampling type(0:xGen, 1:rand, 2:randCof)[default:0]\n");
     Abc_Print( -2, "\t-c       : consider supports information of the current network\n");
     Abc_Print( -2, "\t-v       : verbose\n");
     Abc_Print( -2, "\t-h       : print the command usage\n");
-    return 0;
-}
-
-// ABC command: Draw samples from the witness of the given formula
-int SampleWit_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
-{
-    char c;
-    int nSample;
-    int nPI, nPO, nGen = 0, nAttempt = 0, nCircuit = 0, nSize;
-	bool fVerbose = false, fRedirect = false;
-   	char * filename;
-   	char circuitname[10];
-	fstream file;
-    Abc_Ntk_t * pNtk, * pCkt, * pNtkRes;
-	int * pIn1, * pIn2, * pOut;
-    vector<int*> vMinterm;
-	vector<int*> vResult;
-    SampleCircuit sc;
-    clock_t t1, t2;
-
-    // parse arguments
-    Extra_UtilGetoptReset();
-    while ( ( c = Extra_UtilGetopt( argc, argv, "isrvh" ) ) != EOF )
-    {
-        switch ( c )
-        {
-        case 'i':
-            if ( globalUtilOptind >= argc )
-            {
-                Abc_Print( -1, "Command line switch \"-i\" should be followed by an integer.\n" );
-                goto usage;
-            }
-            nPI = atoi(argv[globalUtilOptind]);
-            globalUtilOptind++;
-            if ( nPI <= 0 )
-                goto usage;
-            break;
-        case 's':
-            if ( globalUtilOptind >= argc )
-            {
-                Abc_Print( -1, "Command line switch \"-s\" should be followed by an integer.\n" );
-                goto usage;
-            }
-            nSample = atoi(argv[globalUtilOptind]);
-            globalUtilOptind++;
-            if ( nSample <= 0 )
-                goto usage;
-            break;
-        case 'r':
-            if ( globalUtilOptind >= argc )
-            {
-                Abc_Print( -1, "Command line switch \"-r\" should be followed by an string.\n" );
-                goto usage;
-            }
-            fRedirect = true;
-            filename = argv[globalUtilOptind];
-            globalUtilOptind++;
-            break;
-        case 'v':
-            fVerbose = true;
-            break;
-        case 'h':
-        default:
-            goto usage;
-        }
-    }
-
-    // get the current network
-    pNtk = Abc_FrameReadNtk(pAbc);
-    assert(pNtk != NULL && Abc_NtkIsComb(pNtk));
-    if (!Abc_NtkIsStrash(pNtk))
-        pNtk = Abc_NtkStrash(pNtk, 0, 1, 0);
-    nPO = Abc_NtkPiNum(pNtk);
-	
-	// generate samples
-    t1 = clock();
-	sc.setIOnum(nPI, nPO);
-    pIn1 = new int[nPI];
-	while (nGen < nSample)
-	{
-        // symbolic sampling
-        pCkt = sc.genCircuit();
-        pNtkRes = sc.connect(pCkt, pNtk);        
-
-        // count minterm
-        for (int i = 0; i < pow(2,nPI); i++)
-        {
-            for (int j = 0; j < nPI; j++)
-                pIn1[j] = (i & (1 << j)) ? 1 : 0;
-            pOut = Abc_NtkVerifySimulatePattern(pNtkRes, pIn1);
-            if (pOut[0] == 1)
-            {
-                pIn2 = Abc_NtkVerifySimulatePattern(pCkt, pIn1);
-                vMinterm.push_back(pIn2);
-            }
-            delete pOut;
-        }
-       
-        // draw sample 
-	    nSize = vMinterm.size();
-	    if (nSize > 0)
-	    {
-            random_shuffle(vMinterm.begin(), vMinterm.end());
-	    	vResult.push_back(vMinterm[0]);
-            vMinterm.clear();
-            nGen++;
-            /*// dump the circuit
-            sprintf(circuitname, "wit%d.aig", nCircuit);
-            assert(vNtk[t] != NULL);
-            Io_WriteAiger( pCkt, circuitname, 0, 0, 0 ); //io name,compact,conanical
-		    nCircuit++;*/
-	    }
-	    Abc_NtkDelete(pCkt);
-	    Abc_NtkDelete(pNtkRes);
-        nAttempt++;
-	}
-    delete pIn1;
-    t2 = clock();
-    if (fVerbose)
-        Abc_Print( 2, "Generate %d samples with p=%f%% in %f secs.\n", nSample, ((float)nSample/nAttempt)*100, (double)(t2-t1)/CLOCKS_PER_SEC );
-
-	// dump the result
-	assert(vResult.size() == nSample);
-	if (fRedirect)
-	{
-        file.open(filename, ios::out|ios::trunc);
-        assert(file.is_open());
-        file << (float)nSample/nAttempt << "\n";
-		for (int i = 0; i < nSample; i++)
-		{
-			for (int j = 0; j < nPO; j++)
-			{
-				if (vResult[i][j] == 0)
-					file << "-";
-				file << j+1 << " ";
-			}
-			file << "\n";
-		}
-        file.close();
-	}
-	/*else
-	{
-		for (int i = 0; i < nSample; i++)
-		{
-			for (int j = 0; j < nPO; j++)
-			{
-				if (vResult[i][j] == 0)
-					cout << "-";
-				cout << j+1 << " ";
-			}
-			cout << "\n";
-		}
-	}*/
-
-    vResult.clear();
-	return 0;
-
-usage:
-    Abc_Print( -2, "usage: sampleWit [-s <num>] [-vh]\n" );
-    Abc_Print( -2, "\t        Generate witnesses of the current network and dump the sampling circuits named by \"wit<num>.aig\"\n" );
-    Abc_Print( -2, "\t-i <num>  : set the number of PI\n");
-    Abc_Print( -2, "\t-s <num>  : set the number of samples\n");
-    Abc_Print( -2, "\t-r <file> : redirect the result to the given file\n");
-    Abc_Print( -2, "\t-v        : verbose\n");
-    Abc_Print( -2, "\t-h        : print the command usage\n");
     return 0;
 }
 
@@ -689,8 +449,10 @@ int SampleChiTest_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
     char c;
     int i, j, pos;
     int nPI = 0, nPO = 0;
+    int nType = 0;
     int nGen = 0, nSample = 0;
-    double nExpect;
+    int nExpect = 1;
+    double DoF;
     bool fCorrelation = false;
     bool fRedirect = false;
     bool fVerbose = false;
@@ -708,7 +470,7 @@ int SampleChiTest_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
 
     // parse arguments
     Extra_UtilGetoptReset();
-    while ( ( c = Extra_UtilGetopt( argc, argv, "ioecrvh" ) ) != EOF )
+    while ( ( c = Extra_UtilGetopt( argc, argv, "ioetcrvh" ) ) != EOF )
     {
         switch ( c )
         {
@@ -740,9 +502,20 @@ int SampleChiTest_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
                 Abc_Print( -1, "Command line switch \"-e\" should be followed by an integer.\n" );
                 goto usage;
             }
-            nSample = atoi(argv[globalUtilOptind]);
+            nExpect = atoi(argv[globalUtilOptind]);
             globalUtilOptind++;
-            if ( nSample <= 0 )
+            if ( nExpect <= 0 )
+                goto usage;
+            break;
+        case 't':
+            if ( globalUtilOptind >= argc )
+            {
+                Abc_Print( -1, "Command line switch \"-t\" should be followed by an integer.\n" );
+                goto usage;
+            }
+            nType = atoi(argv[globalUtilOptind]);
+            globalUtilOptind++;
+            if ( nType < 0 || nType > 2 )
                 goto usage;
             break;
         case 'r':
@@ -790,8 +563,7 @@ int SampleChiTest_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
     assert(nPI > 1 && nPI < nPO);    
 
     // set to default value
-    if (nSample == 0)
-        nSample = (int)pow(2,nPO);
+    nSample = nExpect * (int)pow(2,nPO);
     if (fVerbose)
         Abc_Print( -2, "\nConduct Pearson's chi-squared test w/ nPI = %d, nPO = %d, and nSample = %d.\n", nPI, nPO, nSample );
     pInput = new int[nPI];
@@ -802,20 +574,34 @@ int SampleChiTest_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
         
         // generate sampling circuit
         sc.setIOnum(nPI, nPO);
-        if (fCorrelation)
-            pSampleCkt = sc.genCircuit(pNtk);
-        else
-            pSampleCkt = sc.genCircuit();
+        switch(nType)
+        {
+        case 0:
+            if (fCorrelation)
+                pSampleCkt = sc.genCircuit(pNtk, fVerbose);
+            else
+                pSampleCkt = sc.genCircuit(fVerbose);
+            break;
+        case 1:
+            pSampleCkt = sc.genRand(fVerbose);
+            break;
+        case 2:
+            pSampleCkt = sc.genRandCof(fVerbose);
+            break;
+        default:
+            break;
+        }
         
         // count patterns
-        strPattern.clear();
         for (i = 0; i < pow(2,nPI); i++)
         {
+            strPattern.clear();
             for (j = 0; j < nPI; j++)
                 pInput[j] = (i & (1 << j)) ? 1 : 0;
             int * pValues = Abc_NtkVerifySimulatePattern(pSampleCkt, pInput);
             for (j = 0; j < nPO; j++)
                 strPattern.push_back((char)(pValues[j]+48));
+            //cout << strPattern << "\n";
             if ((mIter = mObserve.find(strPattern)) != mObserve.end())
                 mIter->second++;
             else
@@ -827,7 +613,6 @@ int SampleChiTest_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
 
     // compute chi-square value
     valCrit = 0;
-    nExpect = nSample/pow(2,nPO);
     for (mIter = mObserve.begin(); mIter != mObserve.end(); mIter++)
     {
         double XSqr = mIter->second - nExpect;
@@ -836,7 +621,11 @@ int SampleChiTest_Command( Abc_Frame_t * pAbc, int argc, char ** argv )
     valCrit += nExpect*(pow(2,nPO)-mObserve.size());    
 
     // compute p-value
-    valP = chisqr(pow(2,nPO)-1, valCrit);
+    DoF = pow(2,nPO)-1;
+    if (DoF < 1000)
+        valP = chisqr(DoF, valCrit);
+    else //approximation
+        valP = 0.5 * erfc((valCrit-DoF)/(2*sqrt(DoF)));
 
     // print
     if (fRedirect)
@@ -862,9 +651,10 @@ usage:
     Abc_Print( -2, "\t        Apply Pearson Chi-Square test on sampling circuit\n" );
     Abc_Print( -2, "\t-i <num>  : set the number of PI\n");
     Abc_Print( -2, "\t-o <num>  : set the number of PO\n");
-    Abc_Print( -2, "\t-e <num>  : set the number of samples\n");
+    Abc_Print( -2, "\t-e <num>  : set the expectation value\n");
+    Abc_Print( -2, "\t-t <num>  : set the sampling type(0:xGen, 1:rand, 2:randCof)[default:0]\n");
     Abc_Print( -2, "\t-r <file> : redirect the result to the given file\n");
-    Abc_Print( -2, "\t-c       : consider supports information of the current network\n");
+    Abc_Print( -2, "\t-c        : consider supports information of the current network\n");
     Abc_Print( -2, "\t-v        : verbose\n");
     Abc_Print( -2, "\t-h        : print the command usage\n");
     return 0;
@@ -1139,11 +929,9 @@ usage:
 void init(Abc_Frame_t* pAbc)
 {
     Cmd_CommandAdd( pAbc, "Sample", "info", Info_Command, 0);
-    Cmd_CommandAdd( pAbc, "Sample", "read_cnf", ReadCNF_Command, 0);
     Cmd_CommandAdd( pAbc, "Sample", "sampleCkt", SampleCkt_Command, 0);
     Cmd_CommandAdd( pAbc, "Sample", "sampleGen", SampleGen_Command, 0);
     Cmd_CommandAdd( pAbc, "Sample", "sampleCnt", SampleCnt_Command, 0);
-    Cmd_CommandAdd( pAbc, "Sample", "sampleWit", SampleWit_Command, 0);
     Cmd_CommandAdd( pAbc, "Sample", "sampleChiTest", SampleChiTest_Command, 0);
     Cmd_CommandAdd( pAbc, "Sample", "sampleStuckTest", SampleStuckTest_Command, 0);
 }
